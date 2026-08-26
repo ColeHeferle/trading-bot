@@ -14,6 +14,7 @@ and backtesting them against a paper account.
 | `trading_bot.strategy` | The `Strategy` interface, `BuyAndHold`, `SmaCrossover`, `PriceVsSma`, `TimeSeriesMomentum` |
 | `trading_bot.portfolio` | Cash, positions, fees and realized PnL for a long-only account |
 | `trading_bot.sizing` | Position sizers: `FullInvestment`, `VolatilityTarget` |
+| `trading_bot.bonds` | Yields to a tradeable constant-maturity total-return index |
 | `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
 
 Strategies see each candle exactly once, in order, and signals are filled at
@@ -82,10 +83,33 @@ traded last. A symbol that is flat leaves its share in cash rather than lending
 it to the others, which keeps each leg's risk budget fixed.
 
 On the study data an equal-weight basket beat **every one of its constituents**
-under buy-and-hold (7.24% CAGR against a best single market of 6.67%). Under a
-trend rule it did not: adding crude, where the rule works badly on its own, left
-the basket no better than the S&P alone. A basket beats its *average* member,
-not its best one — see [`docs/strategy-study.md`](docs/strategy-study.md).
+— 7.48% CAGR under buy-and-hold against a best single market of 6.67%, and 0.57
+Sharpe under a trend rule against 0.53 for the best leg. A leg does not have to
+be good on its own to earn its place, so long as it is not merely a worse copy
+of what is already there: crude was the weakest single market and still improved
+the basket.
+
+Widening further to bonds and currencies splits the same way. Bonds were the
+best single asset tested (0.69 Sharpe, 9.4% drawdown) and improved every basket;
+currencies diluted them, though that result is spot-only and so omits carry,
+which is most of what currency strategies earn. See
+[`docs/strategy-study.md`](docs/strategy-study.md).
+
+## Trading bonds
+
+Bonds arrive as yields, and a yield is not a price — buying a yield series gets
+the sign backwards. `trading_bot.bonds` converts one into a constant-maturity
+par-bond total-return index, which the engine then treats as any other symbol:
+
+```python
+from trading_bot import total_return_index
+
+index = total_return_index(monthly_yields, maturity_years=10, periods_per_year=12)
+```
+
+Each period earns carry minus duration times the change in yield. It is a proxy
+for a bond index, not a bond you could have bought: no convexity, roll-down or
+financing.
 
 ## Getting started
 

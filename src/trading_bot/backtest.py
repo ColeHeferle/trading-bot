@@ -206,12 +206,18 @@ def _rebalance(
     target_weight: float,
     threshold: float,
     equity: float,
+    scale: float = 1.0,
 ) -> None:
     """Move one position toward ``target_weight`` of ``equity``, within a band.
 
     ``equity`` is passed in rather than read from the portfolio so a basket can
     size every leg against the same snapshot; otherwise each trade would shift
     the denominator for the legs behind it.
+
+    The band is ``threshold * scale``, where ``scale`` is the share of equity
+    this symbol is allowed at all. It has to be relative: a flat 0.2 band
+    against a ten-symbol basket, where each leg targets 0.1, would reject every
+    entry and the whole basket would sit in cash forever.
     """
     held = portfolio.quantity(symbol)
     if equity <= 0 or price <= 0:
@@ -219,18 +225,29 @@ def _rebalance(
 
     current_weight = held * price / equity
     leaving = target_weight <= 0 and held > 0
-    if not leaving and abs(target_weight - current_weight) < threshold:
+    if not leaving and abs(target_weight - current_weight) < threshold * scale:
         return
 
     delta = target_weight * equity / price - held
     if delta > 0:
         size = min(delta, _affordable(portfolio, price))
-        if size > 0:
+        if _worth_trading(size, price, equity):
             portfolio.execute(Order(symbol, Side.BUY, size), price, timestamp)
     elif delta < 0:
         size = min(-delta, held)
-        if size > 0:
+        if _worth_trading(size, price, equity):
             portfolio.execute(Order(symbol, Side.SELL, size), price, timestamp)
+
+
+def _worth_trading(size: float, price: float, equity: float) -> bool:
+    """Ignore dust.
+
+    Once a basket is fully invested its cash sits at effectively zero, and the
+    arithmetic there produces vanishingly small residual orders — small enough
+    that the safety shave in `_affordable` rounds away and the order overdraws
+    by a fraction of a cent. Nothing that small is worth a fill anyway.
+    """
+    return size > 0 and size * price > equity * 1e-9
 
 
 def _affordable(portfolio: Portfolio, price: float) -> float:
@@ -239,7 +256,7 @@ def _affordable(portfolio: Portfolio, price: float) -> float:
     Shaved by a hair so float rounding cannot push the order past the balance.
     """
     gross = price * (1.0 + portfolio.fee_rate)
-    if gross <= 0:
+    if gross <= 0 or portfolio.cash <= 0:
         return 0.0
     return portfolio.cash / gross * (1.0 - 1e-12)
 
@@ -283,6 +300,9 @@ def run_multi_backtest(
 
     ``strategy_factory`` is called once per symbol, since strategies are
     stateful and must not be shared. ``sizer_factory`` likewise, when given.
+
+    ``rebalance_threshold`` is scaled by each symbol's weight, so the band
+    stays proportional to the position it guards however wide the universe gets.
 
     ``weights`` caps the share of equity each symbol may take, defaulting to an
     equal split. They must not sum past 1.0: the account cannot borrow, so an
@@ -349,7 +369,14 @@ def run_multi_backtest(
         )
         for symbol, (price, target) in ordered:
             _rebalance(
-                portfolio, symbol, price, stamp, target, rebalance_threshold, equity
+                portfolio,
+                symbol,
+                price,
+                stamp,
+                target,
+                rebalance_threshold,
+                equity,
+                scale=weights[symbol],
             )
 
         marked = portfolio.equity(last_price)

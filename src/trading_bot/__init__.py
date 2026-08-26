@@ -7,6 +7,7 @@ from .backtest import (
     run_backtest,
     run_multi_backtest,
 )
+from .bonds import modified_duration, par_bond_returns, total_return_index
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
@@ -43,8 +44,11 @@ __all__ = [
     "TimeSeriesMomentum",
     "VolatilityTarget",
     "ema",
+    "modified_duration",
+    "par_bond_returns",
     "rsi",
     "run_backtest",
     "run_multi_backtest",
     "sma",
+    "total_return_index",
 ]
