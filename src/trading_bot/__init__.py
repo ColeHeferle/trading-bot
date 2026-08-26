@@ -4,6 +4,7 @@ from .backtest import BacktestResult, run_backtest
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
+from .sizing import FullInvestment, PositionSizer, VolatilityTarget
 from .strategy import (
     BuyAndHold,
     PriceVsSma,
@@ -19,17 +20,20 @@ __all__ = [
     "BuyAndHold",
     "Candle",
     "Fill",
+    "FullInvestment",
     "InsufficientFunds",
     "InsufficientPosition",
     "Order",
     "Portfolio",
     "Position",
+    "PositionSizer",
     "PriceVsSma",
     "Side",
     "Signal",
     "SmaCrossover",
     "Strategy",
     "TimeSeriesMomentum",
+    "VolatilityTarget",
     "ema",
     "rsi",
     "run_backtest",

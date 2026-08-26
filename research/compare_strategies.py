@@ -21,6 +21,7 @@ from trading_bot import (
     PriceVsSma,
     SmaCrossover,
     TimeSeriesMomentum,
+    VolatilityTarget,
     run_backtest,
 )
 
@@ -34,12 +35,18 @@ PERIODS = [
     ("FULL 1999-2018", datetime(1999, 1, 1), datetime(2019, 1, 1)),
 ]
 
+# (label, strategy factory, sizer factory or None)
 CONTENDERS = [
-    ("BuyAndHold (benchmark)", BuyAndHold),
-    ("SmaCrossover 10/30", lambda: SmaCrossover(10, 30)),
-    ("SmaCrossover 50/200", lambda: SmaCrossover(50, 200)),
-    ("PriceVsSma 200", lambda: PriceVsSma(200)),
-    ("TimeSeriesMomentum 252", lambda: TimeSeriesMomentum(252)),
+    ("BuyAndHold (benchmark)", BuyAndHold, None),
+    ("BuyAndHold + volTarget", BuyAndHold, lambda: VolatilityTarget(0.15)),
+    ("SmaCrossover 10/30", lambda: SmaCrossover(10, 30), None),
+    ("SmaCrossover 50/200", lambda: SmaCrossover(50, 200), None),
+    ("SmaCrossover 50/200 + volTarget", lambda: SmaCrossover(50, 200),
+     lambda: VolatilityTarget(0.15)),
+    ("PriceVsSma 200", lambda: PriceVsSma(200), None),
+    ("TimeSeriesMomentum 252", lambda: TimeSeriesMomentum(252), None),
+    ("TimeSeriesMomentum 252 + volTarget", lambda: TimeSeriesMomentum(252),
+     lambda: VolatilityTarget(0.15)),
 ]
 
 
@@ -63,18 +70,19 @@ def load(market: str) -> list[Candle]:
     raise ValueError(market)
 
 
-def score(candles, factory):
+def score(candles, factory, sizer_factory=None):
     return run_backtest(
         candles,
         factory(),
         symbol="X",
         portfolio=Portfolio(cash=10_000.0, fee_rate=FEE_RATE),
+        sizer=sizer_factory() if sizer_factory else None,
     )
 
 
 def main() -> None:
     header = (
-        f"{'strategy':<24}{'CAGR':>8}{'Sharpe':>8}{'maxDD':>9}"
+        f"{'strategy':<36}{'CAGR':>8}{'Sharpe':>8}{'maxDD':>9}"
         f"{'expo':>7}{'trades':>8}"
     )
 
@@ -89,10 +97,10 @@ def main() -> None:
                 continue
             print(f"\n  {label}")
             print("  " + header)
-            for name, factory in CONTENDERS:
-                r = score(window, factory)
+            for name, factory, sizer_factory in CONTENDERS:
+                r = score(window, factory, sizer_factory)
                 print(
-                    f"  {name:<24}{r.cagr:>7.2%}{r.sharpe:>8.2f}"
+                    f"  {name:<36}{r.cagr:>7.2%}{r.sharpe:>8.2f}"
                     f"{r.max_drawdown:>9.1%}{r.exposure:>7.0%}{len(r.fills):>8}"
                 )
 

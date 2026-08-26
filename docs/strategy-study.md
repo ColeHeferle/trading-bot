@@ -72,3 +72,67 @@ Slippage beyond the flat 5 bps, market impact, borrowing costs, taxes, dividends
 (index price series, so total return is understated for buy-and-hold — which
 makes the benchmark *harder* to beat than shown here), and survivorship. Results
 are single-asset and long-only. None of this is investment advice.
+
+---
+
+# Does volatility targeting help?
+
+`VolatilityTarget` scales the position so its *risk* stays constant instead of
+its size: weight is `target_volatility / realized_volatility`, capped at
+`max_leverage`. Realized volatility is the trailing 20-candle standard
+deviation, annualized. Rebalancing happens only when the weight has drifted past
+`rebalance_threshold`; exits are never banded.
+
+Same data, same 5 bps per side, target volatility 15%.
+
+## What it reliably does: cut drawdown
+
+| full window 1999–2018 | max DD without | max DD with | Sharpe without → with |
+| --- | ---: | ---: | ---: |
+| S&P 500 BuyAndHold | 56.8% | **45.9%** | 0.28 → 0.27 |
+| Nasdaq BuyAndHold | 77.9% | **46.7%** | 0.34 → **0.54** |
+| WTI BuyAndHold | 82.0% | **51.3%** | 0.36 → 0.29 |
+| S&P SmaCrossover 50/200 | 20.6% | **18.7%** | 0.53 → 0.46 |
+| Nasdaq SmaCrossover 50/200 | 24.6% | **18.6%** | 0.50 → **0.55** |
+| Nasdaq TimeSeriesMomentum | 20.4% | **16.7%** | 0.50 → **0.55** |
+
+Drawdown fell in **every** pairing tested. That is the effect to rely on.
+
+## What it does not reliably do: raise returns
+
+Return usually falls, because a risk-targeted position is smaller on average
+than a fully invested one. There is exactly one case here where it improved
+both return and risk — Nasdaq buy-and-hold, 5.66% → 6.97% CAGR with drawdown
+cut from 77.9% to 46.7% — and it is the most violently volatile equity exposure
+in the set. That is the pattern: **the wilder and less managed the exposure, the
+more volatility targeting adds.**
+
+## Where it actively hurts
+
+Layered onto a trend rule that already sidesteps crashes by going flat, it can
+subtract: S&P `SmaCrossover(50, 200)` drops from 0.53 to 0.46 Sharpe and 5.58%
+to 4.20% CAGR. The rule had already cut its own risk, so scaling adds cost
+without adding protection. On WTI it is worse — 4.89% to 1.39% CAGR — because
+crude's volatility is persistently high, so the sizer holds a small position
+throughout and still pays to rebalance it.
+
+**Do not stack it on a strategy that is already flat during crashes.** It pays
+where exposure is constant and volatility is not.
+
+## Turnover is the cost, and the band is the dial
+
+Volatility targeting turns a 22-trade strategy into a 70-trade one. The
+rebalance band controls that, and it is flat where it matters:
+
+| band | S&P Sharpe | S&P trades | Nasdaq Sharpe | Nasdaq trades |
+| ---: | ---: | ---: | ---: | ---: |
+| 0.01 | 0.45 | 536 | 0.51 | 764 |
+| 0.05 | 0.45 | 211 | 0.52 | 287 |
+| 0.10 | 0.44 | 110 | 0.51 | 152 |
+| **0.20** | 0.46 | **61** | 0.55 | **70** |
+| 0.30 | 0.45 | 36 | 0.51 | 48 |
+| 0.50 | 0.45 | 21 | 0.47 | 24 |
+
+Sharpe is unchanged from 0.01 to 0.3 while turnover falls 25×, so the default is
+0.2 — chosen from the flat region to cut trading, not because 0.2 scored top.
+Read the 0.20 row as "indistinguishable from its neighbours", not as a peak.

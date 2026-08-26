@@ -13,6 +13,7 @@ and backtesting them against a paper account.
 | `trading_bot.indicators` | Rolling `sma`, `ema` and `rsi`, aligned with the input series |
 | `trading_bot.strategy` | The `Strategy` interface, `BuyAndHold`, `SmaCrossover`, `PriceVsSma`, `TimeSeriesMomentum` |
 | `trading_bot.portfolio` | Cash, positions, fees and realized PnL for a long-only account |
+| `trading_bot.sizing` | Position sizers: `FullInvestment`, `VolatilityTarget` |
 | `trading_bot.backtest` | Replays candles through a strategy and reports the outcome |
 
 Strategies see each candle exactly once, in order, and signals are filled at
@@ -34,6 +35,28 @@ S&P. Treat these as a smoother ride, not free return.
 [`docs/strategy-study.md`](docs/strategy-study.md) has the full tables, the
 out-of-sample test showing that parameter tuning added nothing, and what the
 backtest does not model.
+
+## Sizing the position
+
+A strategy decides *whether* to hold; a sizer decides *how much*. Pass one to
+`run_backtest` and the position is rebalanced toward that weight:
+
+```python
+from trading_bot import SmaCrossover, VolatilityTarget, run_backtest
+
+result = run_backtest(
+    candles,
+    SmaCrossover(50, 200),
+    sizer=VolatilityTarget(target_volatility=0.15),
+)
+```
+
+`VolatilityTarget` holds `target_volatility / realized_volatility` of equity, so
+it shrinks into turmoil and grows into calm. In the study it **cut drawdown in
+every pairing tested** — Nasdaq buy-and-hold went from a 77.9% drawdown to 46.7%
+while *also* improving return — but it usually costs some return, and stacking
+it on a trend rule that already goes flat in crashes made things worse, not
+better. It is a risk control, not a return booster.
 
 ## Getting started
 
