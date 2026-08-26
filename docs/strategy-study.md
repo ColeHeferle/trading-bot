@@ -136,3 +136,63 @@ rebalance band controls that, and it is flat where it matters:
 Sharpe is unchanged from 0.01 to 0.3 while turnover falls 25×, so the default is
 0.2 — chosen from the flat region to cut trading, not because 0.2 scored top.
 Read the 0.20 row as "indistinguishable from its neighbours", not as a peak.
+
+---
+
+# Does holding a basket help?
+
+`run_multi_backtest` runs one strategy per symbol over a shared cash balance,
+capping each symbol's share of equity (equal split by default). Reproduce with
+`python research/compare_baskets.py`. Restricted to 1999–2018, the window all
+three markets share.
+
+## Buy-and-hold: yes, clearly
+
+| 1999–2018 | CAGR | Sharpe | max DD |
+| --- | ---: | ---: | ---: |
+| sp500 alone | 3.63% | 0.28 | 56.8% |
+| nasdaq alone | 5.66% | 0.34 | 77.9% |
+| wti alone | 6.67% | 0.36 | 82.0% |
+| **equal-weight basket** | **7.24%** | **0.45** | 58.4% |
+
+The basket beat **every one of its own constituents** on both return and
+Sharpe. That is not a rounding artifact: rebalancing back to equal weight sells
+whatever ran up and buys whatever lagged, and across three imperfectly
+correlated markets that harvesting is worth more than the cash drag of the
+rebalance band. Drawdown lands between the best and worst leg rather than below
+both — diversification smooths the path, it does not abolish the 2008 problem
+when everything falls together.
+
+## Trend following: no, not with this universe
+
+| 1999–2018 | CAGR | Sharpe | max DD | trades |
+| --- | ---: | ---: | ---: | ---: |
+| sp500 alone, SMA 50/200 | 5.58% | **0.53** | **20.6%** | 18 |
+| basket of three, SMA 50/200 | 5.93% | 0.52 | 24.3% | 66 |
+| **sp500+nasdaq, SMA 50/200** | 5.77% | **0.54** | **19.9%** | 40 |
+
+Adding crude to the trend basket bought nothing: the three-market basket is no
+better than the S&P alone, because `SmaCrossover(50, 200)` on WTI is a poor
+strategy in its own right (0.32 Sharpe, 55% drawdown) and equal weighting hands
+it a third of the capital regardless. Drop it and the equity pair edges ahead of
+either leg on its own.
+
+**A basket is not automatically better than its best member.** It is better than
+its *average* member, which is only useful if the members are individually
+sound. Diversification dilutes a bad strategy into a portfolio; it does not fix
+it.
+
+## The costs that scale with breadth
+
+Turnover multiplies with the universe: `PriceVsSma(200)` across three markets
+trades 468 times against 148 on the S&P alone, and its 3.42% CAGR is the worst
+trend result here. Every symbol pays the band's rebalancing on top of its own
+entries and exits.
+
+## What this does not show
+
+Three markets, two of them equity indices that fell together in 2000 and 2008,
+is a thin universe — real trend-following programmes run dozens of markets
+across equities, bonds, currencies and commodities, and that breadth is most of
+where their diversification comes from. This study is evidence about *these*
+three series, not a verdict on multi-asset trend following.

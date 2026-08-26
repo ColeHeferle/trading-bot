@@ -1,4 +1,4 @@
-"""A single-symbol, long-only backtest loop.
+"""Long-only backtest loops, for one symbol or a whole basket.
 
 Signals are acted on at the close of the candle that produced them, which is
 the earliest price a live bot could realistically have traded at.
@@ -7,7 +7,7 @@ the earliest price a live bot could realistically have traded at.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -17,13 +17,16 @@ from .sizing import PositionSizer
 from .strategy import Strategy
 
 
-@dataclass
-class BacktestResult:
-    symbol: str
+class EquityMetrics:
+    """Performance measures derived from an equity curve.
+
+    Shared by the single-symbol and multi-asset results so both report the
+    same numbers computed the same way.
+    """
+
+    equity_curve: list[tuple[datetime, float]]
     portfolio: Portfolio
-    equity_curve: list[tuple[datetime, float]] = field(default_factory=list)
-    holdings: list[float] = field(default_factory=list)
-    periods_per_year: int = 252
+    periods_per_year: int
 
     @property
     def fills(self) -> list[Fill]:
@@ -88,6 +91,17 @@ class BacktestResult:
             return 0.0
         return mean / math.sqrt(variance) * math.sqrt(self.periods_per_year)
 
+
+@dataclass
+class BacktestResult(EquityMetrics):
+    """The outcome of a single-symbol backtest."""
+
+    symbol: str
+    portfolio: Portfolio
+    equity_curve: list[tuple[datetime, float]] = field(default_factory=list)
+    holdings: list[float] = field(default_factory=list)
+    periods_per_year: int = 252
+
     @property
     def exposure(self) -> float:
         """Fraction of candles spent holding a position."""
@@ -142,7 +156,15 @@ def run_backtest(
             _trade_all_or_nothing(portfolio, symbol, candle, signal, quantity)
         else:
             target = sizer.weight(candle) if wants_long else 0.0
-            _rebalance(portfolio, symbol, candle, target, rebalance_threshold)
+            _rebalance(
+                portfolio,
+                symbol,
+                candle.close,
+                candle.timestamp,
+                target,
+                rebalance_threshold,
+                portfolio.equity({symbol: candle.close}),
+            )
 
         result.equity_curve.append(
             (candle.timestamp, portfolio.equity({symbol: candle.close}))
@@ -179,14 +201,19 @@ def _trade_all_or_nothing(
 def _rebalance(
     portfolio: Portfolio,
     symbol: str,
-    candle: Candle,
+    price: float,
+    timestamp: datetime,
     target_weight: float,
     threshold: float,
+    equity: float,
 ) -> None:
-    """Move the position toward ``target_weight`` of equity, within a band."""
-    price = candle.close
+    """Move one position toward ``target_weight`` of ``equity``, within a band.
+
+    ``equity`` is passed in rather than read from the portfolio so a basket can
+    size every leg against the same snapshot; otherwise each trade would shift
+    the denominator for the legs behind it.
+    """
     held = portfolio.quantity(symbol)
-    equity = portfolio.equity({symbol: price})
     if equity <= 0 or price <= 0:
         return
 
@@ -199,11 +226,11 @@ def _rebalance(
     if delta > 0:
         size = min(delta, _affordable(portfolio, price))
         if size > 0:
-            portfolio.execute(Order(symbol, Side.BUY, size), price, candle.timestamp)
+            portfolio.execute(Order(symbol, Side.BUY, size), price, timestamp)
     elif delta < 0:
         size = min(-delta, held)
         if size > 0:
-            portfolio.execute(Order(symbol, Side.SELL, size), price, candle.timestamp)
+            portfolio.execute(Order(symbol, Side.SELL, size), price, timestamp)
 
 
 def _affordable(portfolio: Portfolio, price: float) -> float:
@@ -215,3 +242,144 @@ def _affordable(portfolio: Portfolio, price: float) -> float:
     if gross <= 0:
         return 0.0
     return portfolio.cash / gross * (1.0 - 1e-12)
+
+
+@dataclass
+class MultiBacktestResult(EquityMetrics):
+    """The outcome of a basket backtest."""
+
+    symbols: list[str]
+    portfolio: Portfolio
+    equity_curve: list[tuple[datetime, float]] = field(default_factory=list)
+    invested: list[float] = field(default_factory=list)
+    periods_per_year: int = 252
+
+    @property
+    def exposure(self) -> float:
+        """Average share of equity actually deployed, across the run.
+
+        For a basket this is the fraction of capital at work rather than the
+        fraction of bars spent holding — with several symbols the account is
+        nearly always holding *something*, which would make that useless.
+        """
+        if not self.invested:
+            return 0.0
+        return sum(self.invested) / len(self.invested)
+
+    def fills_for(self, symbol: str) -> list[Fill]:
+        return [fill for fill in self.portfolio.fills if fill.symbol == symbol]
+
+
+def run_multi_backtest(
+    data: Mapping[str, Sequence[Candle]],
+    strategy_factory: Callable[[], Strategy],
+    portfolio: Portfolio | None = None,
+    sizer_factory: Callable[[], PositionSizer] | None = None,
+    weights: Mapping[str, float] | None = None,
+    rebalance_threshold: float = 0.2,
+    periods_per_year: int = 252,
+) -> MultiBacktestResult:
+    """Run one strategy per symbol over a shared cash balance.
+
+    ``strategy_factory`` is called once per symbol, since strategies are
+    stateful and must not be shared. ``sizer_factory`` likewise, when given.
+
+    ``weights`` caps the share of equity each symbol may take, defaulting to an
+    equal split. They must not sum past 1.0: the account cannot borrow, so an
+    over-allocated basket would simply starve whichever legs traded last. A
+    symbol that is flat leaves its share in cash rather than lending it to the
+    others, which keeps each leg's risk budget fixed.
+
+    Symbols may cover different date ranges. The loop walks the union of all
+    timestamps, only trades a symbol on bars it actually has, and marks
+    everything else at its last known close. Within a bar, sells run before
+    buys so freed cash is available to the buyers.
+    """
+    symbols = sorted(data)
+    if not symbols:
+        raise ValueError("data must contain at least one symbol")
+
+    weights = _resolve_weights(symbols, weights)
+    portfolio = portfolio if portfolio is not None else Portfolio()
+    result = MultiBacktestResult(
+        symbols=symbols, portfolio=portfolio, periods_per_year=periods_per_year
+    )
+
+    by_time = {
+        symbol: {candle.timestamp: candle for candle in data[symbol]}
+        for symbol in symbols
+    }
+    timeline = sorted({stamp for stamps in by_time.values() for stamp in stamps})
+
+    strategies = {symbol: strategy_factory() for symbol in symbols}
+    sizers = (
+        {symbol: sizer_factory() for symbol in symbols} if sizer_factory else None
+    )
+    wants_long = dict.fromkeys(symbols, False)
+    last_price: dict[str, float] = {}
+
+    for stamp in timeline:
+        targets: dict[str, tuple[float, float]] = {}
+
+        for symbol in symbols:
+            candle = by_time[symbol].get(stamp)
+            if candle is None:
+                continue
+            last_price[symbol] = candle.close
+
+            signal = strategies[symbol].on_candle(candle)
+            if signal is Signal.BUY:
+                wants_long[symbol] = True
+            elif signal is Signal.SELL:
+                wants_long[symbol] = False
+
+            share = weights[symbol]
+            if sizers is not None:
+                share *= sizers[symbol].weight(candle)
+            targets[symbol] = (candle.close, share if wants_long[symbol] else 0.0)
+
+        equity = portfolio.equity(last_price)
+
+        # Ascending trade value puts the sells first, so a buy funded by a
+        # sale in the same bar finds the cash already there.
+        ordered = sorted(
+            targets.items(),
+            key=lambda item: item[1][1] * equity
+            - portfolio.quantity(item[0]) * item[1][0],
+        )
+        for symbol, (price, target) in ordered:
+            _rebalance(
+                portfolio, symbol, price, stamp, target, rebalance_threshold, equity
+            )
+
+        marked = portfolio.equity(last_price)
+        result.equity_curve.append((stamp, marked))
+        result.invested.append(
+            1.0 - portfolio.cash / marked if marked > 0 else 0.0
+        )
+
+    return result
+
+
+def _resolve_weights(
+    symbols: Sequence[str], weights: Mapping[str, float] | None
+) -> dict[str, float]:
+    if weights is None:
+        return {symbol: 1.0 / len(symbols) for symbol in symbols}
+
+    missing = set(symbols) - set(weights)
+    if missing:
+        raise ValueError(f"weights missing for {sorted(missing)}")
+    unknown = set(weights) - set(symbols)
+    if unknown:
+        raise ValueError(f"weights given for unknown symbols {sorted(unknown)}")
+    if any(weight <= 0 for weight in weights.values()):
+        raise ValueError("weights must be positive")
+
+    total = sum(weights.values())
+    if total > 1.0 + 1e-9:
+        raise ValueError(
+            f"weights sum to {total:.4f}; the account cannot borrow, so a "
+            "basket allocating more than 1.0 would starve its last legs"
+        )
+    return dict(weights)

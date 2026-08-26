@@ -14,7 +14,7 @@ and backtesting them against a paper account.
 | `trading_bot.strategy` | The `Strategy` interface, `BuyAndHold`, `SmaCrossover`, `PriceVsSma`, `TimeSeriesMomentum` |
 | `trading_bot.portfolio` | Cash, positions, fees and realized PnL for a long-only account |
 | `trading_bot.sizing` | Position sizers: `FullInvestment`, `VolatilityTarget` |
-| `trading_bot.backtest` | Replays candles through a strategy and reports the outcome |
+| `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
 
 Strategies see each candle exactly once, in order, and signals are filled at
 the close of the candle that produced them — so a backtest cannot trade on a
@@ -57,6 +57,35 @@ every pairing tested** — Nasdaq buy-and-hold went from a 77.9% drawdown to 46.
 while *also* improving return — but it usually costs some return, and stacking
 it on a trend rule that already goes flat in crashes made things worse, not
 better. It is a risk control, not a return booster.
+
+## Trading a basket
+
+`run_multi_backtest` runs one strategy per symbol over a shared cash balance.
+Symbols may cover different date ranges; the loop walks the union of their
+timestamps, trades a symbol only on bars it has, and marks the rest at their
+last close. Sells settle before buys within a bar, so cash freed by an exit can
+fund an entry the same day.
+
+```python
+from trading_bot import SmaCrossover, run_multi_backtest
+
+result = run_multi_backtest(
+    {"SPX": spx_candles, "NDX": ndx_candles, "WTI": wti_candles},
+    lambda: SmaCrossover(50, 200),          # one instance per symbol
+    weights={"SPX": 0.4, "NDX": 0.4, "WTI": 0.2},   # default: equal split
+)
+```
+
+Weights cap each symbol's share of equity and must not sum past 1.0 — the
+account cannot borrow, so an over-allocated basket would starve whichever legs
+traded last. A symbol that is flat leaves its share in cash rather than lending
+it to the others, which keeps each leg's risk budget fixed.
+
+On the study data an equal-weight basket beat **every one of its constituents**
+under buy-and-hold (7.24% CAGR against a best single market of 6.67%). Under a
+trend rule it did not: adding crude, where the rule works badly on its own, left
+the basket no better than the S&P alone. A basket beats its *average* member,
+not its best one — see [`docs/strategy-study.md`](docs/strategy-study.md).
 
 ## Getting started
 
