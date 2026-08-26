@@ -12,6 +12,8 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Only research/ needs these; the package itself stays dependency-free.
+research = ["arch>=6.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

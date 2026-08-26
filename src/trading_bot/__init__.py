@@ -4,12 +4,19 @@ from .backtest import BacktestResult, run_backtest
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
-from .strategy import SmaCrossover, Strategy
+from .strategy import (
+    BuyAndHold,
+    PriceVsSma,
+    SmaCrossover,
+    Strategy,
+    TimeSeriesMomentum,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "BacktestResult",
+    "BuyAndHold",
     "Candle",
     "Fill",
     "InsufficientFunds",
@@ -17,10 +24,12 @@ __all__ = [
     "Order",
     "Portfolio",
     "Position",
+    "PriceVsSma",
     "Side",
     "Signal",
     "SmaCrossover",
     "Strategy",
+    "TimeSeriesMomentum",
     "ema",
     "rsi",
     "run_backtest",

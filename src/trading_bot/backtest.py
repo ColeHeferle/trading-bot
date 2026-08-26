@@ -6,6 +6,7 @@ the earliest price a live bot could realistically have traded at.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,6 +21,8 @@ class BacktestResult:
     symbol: str
     portfolio: Portfolio
     equity_curve: list[tuple[datetime, float]] = field(default_factory=list)
+    holdings: list[float] = field(default_factory=list)
+    periods_per_year: int = 252
 
     @property
     def fills(self) -> list[Fill]:
@@ -47,6 +50,50 @@ class BacktestResult:
                 worst = max(worst, 1.0 - equity / peak)
         return worst
 
+    @property
+    def returns(self) -> list[float]:
+        """Per-candle fractional change in equity."""
+        curve = [equity for _, equity in self.equity_curve]
+        return [
+            curve[i] / curve[i - 1] - 1.0
+            for i in range(1, len(curve))
+            if curve[i - 1] > 0
+        ]
+
+    @property
+    def cagr(self) -> float:
+        """Compound annual growth rate, from the elapsed calendar time."""
+        if len(self.equity_curve) < 2:
+            return 0.0
+        start, end = self.equity_curve[0], self.equity_curve[-1]
+        years = (end[0] - start[0]).days / 365.25
+        if years <= 0 or start[1] <= 0:
+            return 0.0
+        return (end[1] / start[1]) ** (1 / years) - 1.0
+
+    @property
+    def sharpe(self) -> float:
+        """Annualized return over volatility, against a zero risk-free rate.
+
+        Annualized with `periods_per_year`, which assumes every candle covers
+        the same span — true for daily bars, wrong for an irregular series.
+        """
+        rets = self.returns
+        if len(rets) < 2:
+            return 0.0
+        mean = sum(rets) / len(rets)
+        variance = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+        if variance <= 0:
+            return 0.0
+        return mean / math.sqrt(variance) * math.sqrt(self.periods_per_year)
+
+    @property
+    def exposure(self) -> float:
+        """Fraction of candles spent holding a position."""
+        if not self.holdings:
+            return 0.0
+        return sum(1 for quantity in self.holdings if quantity) / len(self.holdings)
+
 
 def run_backtest(
     candles: Iterable[Candle],
@@ -54,14 +101,19 @@ def run_backtest(
     symbol: str = "ASSET",
     portfolio: Portfolio | None = None,
     quantity: float | None = None,
+    periods_per_year: int = 252,
 ) -> BacktestResult:
     """Replay ``candles`` through ``strategy``, trading a single long position.
 
     ``quantity`` fixes the size of every trade; left as ``None``, each buy uses
     the whole cash balance and each sell closes the position.
+    ``periods_per_year`` only annualizes the Sharpe ratio — 252 for daily bars,
+    12 for monthly.
     """
     portfolio = portfolio if portfolio is not None else Portfolio()
-    result = BacktestResult(symbol=symbol, portfolio=portfolio)
+    result = BacktestResult(
+        symbol=symbol, portfolio=portfolio, periods_per_year=periods_per_year
+    )
 
     for candle in candles:
         signal = strategy.on_candle(candle)
@@ -83,6 +135,7 @@ def run_backtest(
         result.equity_curve.append(
             (candle.timestamp, portfolio.equity({symbol: candle.close}))
         )
+        result.holdings.append(portfolio.quantity(symbol))
 
     return result
 
