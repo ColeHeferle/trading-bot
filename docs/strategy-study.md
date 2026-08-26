@@ -146,53 +146,135 @@ capping each symbol's share of equity (equal split by default). Reproduce with
 `python research/compare_baskets.py`. Restricted to 1999–2018, the window all
 three markets share.
 
-## Buy-and-hold: yes, clearly
+> **Corrected.** The numbers first published here were computed with a
+> rebalancing band that did not scale with the number of symbols, so every
+> multi-symbol basket was rebalanced far too loosely — and a three-symbol
+> basket needed a 60% relative drift before it corrected. Fixing that
+> (`rebalance_threshold` is now scaled by each symbol's weight) changed the
+> figures below and **reversed the trend-following conclusion**. The original
+> claim, that a basket beats its average member but not its best one, was an
+> artifact of that bug.
+
+## Buy-and-hold: diversification wins
 
 | 1999–2018 | CAGR | Sharpe | max DD |
 | --- | ---: | ---: | ---: |
 | sp500 alone | 3.63% | 0.28 | 56.8% |
 | nasdaq alone | 5.66% | 0.34 | 77.9% |
 | wti alone | 6.67% | 0.36 | 82.0% |
-| **equal-weight basket** | **7.24%** | **0.45** | 58.4% |
+| **equal-weight basket** | **7.48%** | **0.46** | 51.3% |
 
-The basket beat **every one of its own constituents** on both return and
-Sharpe. That is not a rounding artifact: rebalancing back to equal weight sells
-whatever ran up and buys whatever lagged, and across three imperfectly
-correlated markets that harvesting is worth more than the cash drag of the
-rebalance band. Drawdown lands between the best and worst leg rather than below
-both — diversification smooths the path, it does not abolish the 2008 problem
-when everything falls together.
+The basket beat every one of its own constituents on both return and Sharpe.
+Rebalancing back to equal weight sells whatever ran up and buys whatever
+lagged, and across three imperfectly correlated markets that harvesting is
+worth more than the cash drag of the band. Drawdown lands just below the best
+single leg — diversification smooths the path, it does not abolish 2008.
 
-## Trend following: no, not with this universe
+## Trend following: it wins too, at a wider drawdown
 
-| 1999–2018 | CAGR | Sharpe | max DD | trades |
+| 1999–2018, SMA 50/200 | CAGR | Sharpe | max DD | trades |
 | --- | ---: | ---: | ---: | ---: |
-| sp500 alone, SMA 50/200 | 5.58% | **0.53** | **20.6%** | 18 |
-| basket of three, SMA 50/200 | 5.93% | 0.52 | 24.3% | 66 |
-| **sp500+nasdaq, SMA 50/200** | 5.77% | **0.54** | **19.9%** | 40 |
+| sp500 alone | 5.58% | 0.53 | **20.6%** | 18 |
+| nasdaq alone | 5.81% | 0.50 | 24.6% | 22 |
+| wti alone | 4.89% | 0.32 | 55.0% | 26 |
+| **basket of three** | **6.28%** | **0.57** | 24.3% | 79 |
+| sp500+nasdaq | 5.77% | 0.54 | **19.9%** | 40 |
 
-Adding crude to the trend basket bought nothing: the three-market basket is no
-better than the S&P alone, because `SmaCrossover(50, 200)` on WTI is a poor
-strategy in its own right (0.32 Sharpe, 55% drawdown) and equal weighting hands
-it a third of the capital regardless. Drop it and the equity pair edges ahead of
-either leg on its own.
-
-**A basket is not automatically better than its best member.** It is better than
-its *average* member, which is only useful if the members are individually
-sound. Diversification dilutes a bad strategy into a portfolio; it does not fix
-it.
+The three-market basket beat every leg on return and Sharpe, crude included —
+even though crude is the worst of them on its own. That is the point of
+diversifying: a leg does not have to be good alone to be worth holding
+alongside others, so long as it is not merely a worse copy of them. It does
+carry the wider drawdown, and the equity-only pair remains the smoothest ride.
 
 ## The costs that scale with breadth
 
 Turnover multiplies with the universe: `PriceVsSma(200)` across three markets
-trades 468 times against 148 on the S&P alone, and its 3.42% CAGR is the worst
+trades 478 times against 148 on the S&P alone, and its 3.84% CAGR is the worst
 trend result here. Every symbol pays the band's rebalancing on top of its own
-entries and exits.
+entries and exits — and the tighter, correctly-scaled band charges more for it
+than the buggy one did.
 
 ## What this does not show
 
 Three markets, two of them equity indices that fell together in 2000 and 2008,
-is a thin universe — real trend-following programmes run dozens of markets
-across equities, bonds, currencies and commodities, and that breadth is most of
-where their diversification comes from. This study is evidence about *these*
-three series, not a verdict on multi-asset trend following.
+is a thin universe — see the next section, which widens it to bonds and
+currencies.
+
+---
+
+# Adding bonds and currencies
+
+`python research/compare_universe.py`. Monthly bars, 1999–2018, ten symbols:
+S&P 500, Nasdaq, WTI, a synthetic 10-year Treasury total-return index, and six
+freely floating currencies (EUR, JPY, GBP, CHF, CAD, AUD).
+
+Monthly, not daily, because the only US 10-year yield series reachable offline
+is monthly — and dropping a monthly leg into a daily basket would leave the bond
+mark stale for weeks and corrupt every daily statistic. Trend parameters are
+monthly equivalents: a 10-month filter, not a 200-day one.
+
+## Two things had to be built before this could run at all
+
+**A yield is not a price.** Buying a series quoted in yields gets the sign
+backwards, since yields rise when prices fall. `trading_bot.bonds` converts
+yields into a constant-maturity par-bond total-return index: carry each period,
+minus duration times the change in yield. It is a model, not a traded price —
+it omits convexity, roll-down and financing.
+
+**The exchange-rate source quotes foreign units per dollar**, uniformly, for
+every currency including EUR and GBP. Used as published, "buying" would have
+been a long *dollar* position and every currency result would have carried the
+wrong sign. `load_fx` inverts to dollars per unit.
+
+## Bonds: the best single asset in the study
+
+| 1999–2018, monthly | CAGR | Sharpe | max DD |
+| --- | ---: | ---: | ---: |
+| **ust10y (synthetic)** | 4.17% | **0.69** | **9.4%** |
+| sp500 | 3.43% | 0.31 | 52.6% |
+| nasdaq | 5.01% | 0.33 | 75.0% |
+| wti | 6.53% | 0.36 | 76.6% |
+
+Adding bonds improved every basket tested, and equities-plus-bonds under a
+10-month trend filter is the best risk-adjusted result anywhere in this study:
+
+| 10-month trend | CAGR | Sharpe | max DD |
+| --- | ---: | ---: | ---: |
+| equities only | 5.66% | 0.64 | 16.7% |
+| + crude | 6.16% | 0.66 | 18.2% |
+| + bonds | 5.58% | 0.78 | 12.7% |
+| **equities + bonds only** | 5.05% | **0.81** | **9.6%** |
+| + currencies (all ten) | 2.80% | 0.62 | 9.0% |
+
+Bear in mind *why* 1999–2018 flatters bonds: yields fell from 4.65% to 2.7%
+across the window, so the duration term paid out for twenty years. This is a
+sample containing one long bond bull market, and it will not repeat from a
+starting yield near zero.
+
+## Currencies: they diluted the basket
+
+Spot currency returns were close to nothing over this window — EUR +0.04% a
+year, JPY +0.28%, GBP −1.27%, CHF +1.85%, CAD +0.51%, AUD +0.57%. Equal
+weighting hands six such legs 60% of the capital, and the full ten-symbol
+basket falls to 2.80% CAGR from the four-symbol basket's 5.58%.
+
+Two caveats before concluding currencies are useless:
+
+**This is spot only, and spot is not the whole return.** Holding a currency
+earns the interest-rate differential — the carry — which is most of what
+currency strategies actually harvest. A spot series omits it entirely, so these
+numbers understate real currency returns by an amount that varies by pair and
+period. The right fix is short-rate data per currency, which is not reachable
+here.
+
+**Equal weighting is doing much of the damage.** The finding is as much about
+handing 60% of capital to six near-zero-return legs as about currencies. Drawdown
+did fall — 12.7% to 9.0% — which is what diversification into uncorrelated,
+low-volatility assets is supposed to do. What sank the return was the
+allocation, not the diversification.
+
+## The monthly caveat
+
+Monthly sampling cannot see intra-month drawdowns, so every max drawdown here
+is understated and every Sharpe flattered relative to the daily figures earlier
+in this document. Compare monthly against monthly, not against the daily study.

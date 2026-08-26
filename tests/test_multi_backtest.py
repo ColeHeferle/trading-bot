@@ -263,3 +263,58 @@ class TestWithSizer:
             sizer_factory=lambda: VolatilityTarget(0.15, lookback=10),
         )
         assert sized.exposure < plain.exposure
+
+
+class TestBandScalesWithUniverseSize:
+    """A fixed band would reject every entry once the universe got wide.
+
+    With ten symbols each leg targets 0.1 of equity, under a default band of
+    0.2 — so an absolute band left the whole basket sitting in cash and
+    reporting a flat zero, silently, with no error anywhere.
+    """
+
+    @pytest.mark.parametrize("count", [1, 2, 5, 6, 10, 25])
+    def test_every_symbol_is_entered_however_wide_the_basket(self, count):
+        data = {f"S{i}": series([10, 11, 12, 13, 14, 15]) for i in range(count)}
+        result = run_multi_backtest(data, BuyAndHold, portfolio=Portfolio(100_000.0))
+
+        traded = {fill.symbol for fill in result.fills}
+        assert traded == set(data)
+        assert result.exposure > 0.5
+
+    def test_a_wide_basket_deploys_nearly_all_its_capital(self):
+        data = {f"S{i}": series([10] * 6) for i in range(10)}
+        result = run_multi_backtest(data, BuyAndHold, portfolio=Portfolio(100_000.0))
+
+        assert result.portfolio.cash == pytest.approx(0.0, abs=1.0)
+
+    def test_the_band_still_suppresses_churn_within_a_leg(self):
+        # The legs must move *differently*, or their weights never drift apart
+        # and no band setting would ever trigger a rebalance.
+        data = {
+            f"S{i}": series([10 * (1 + 0.05 * (i + 1) * ((-1) ** (t + i))) for t in range(120)])
+            for i in range(10)
+        }
+        tight = run_multi_backtest(
+            data, BuyAndHold, portfolio=Portfolio(100_000.0), rebalance_threshold=0.001
+        )
+        wide = run_multi_backtest(
+            data, BuyAndHold, portfolio=Portfolio(100_000.0), rebalance_threshold=5.0
+        )
+        assert len(wide.fills) < len(tight.fills)
+
+    def test_single_symbol_band_is_unchanged(self):
+        # scale is 1.0 for a lone symbol, so the old behaviour is preserved.
+        closes = [10, 10, 10, 10, 12, 14, 16, 18, 20, 22, 24, 23, 20, 17, 14]
+        one = run_multi_backtest(
+            {"A": series(closes)},
+            lambda: SmaCrossover(2, 4),
+            portfolio=Portfolio(1000.0),
+        )
+        direct = run_backtest(
+            series(closes),
+            SmaCrossover(2, 4),
+            symbol="A",
+            portfolio=Portfolio(1000.0),
+        )
+        assert one.final_equity == pytest.approx(direct.final_equity)
