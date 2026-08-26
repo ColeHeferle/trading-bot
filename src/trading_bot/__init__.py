@@ -1,6 +1,12 @@
 """A small, dependency-free toolkit for building and backtesting trading bots."""
 
-from .backtest import BacktestResult, run_backtest
+from .backtest import (
+    BacktestResult,
+    EquityMetrics,
+    MultiBacktestResult,
+    run_backtest,
+    run_multi_backtest,
+)
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
@@ -19,10 +25,12 @@ __all__ = [
     "BacktestResult",
     "BuyAndHold",
     "Candle",
+    "EquityMetrics",
     "Fill",
     "FullInvestment",
     "InsufficientFunds",
     "InsufficientPosition",
+    "MultiBacktestResult",
     "Order",
     "Portfolio",
     "Position",
@@ -37,5 +45,6 @@ __all__ = [
     "ema",
     "rsi",
     "run_backtest",
+    "run_multi_backtest",
     "sma",
 ]
