@@ -10,6 +10,7 @@ from .backtest import (
 from .bonds import modified_duration, par_bond_returns, total_return_index
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
+from .paper import FrozenRule, JournalEntry, PaperRun, Report, years_to_detect
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
 from .sizing import FullInvestment, PositionSizer, VolatilityTarget
 from .strategy import (
@@ -28,15 +29,19 @@ __all__ = [
     "Candle",
     "EquityMetrics",
     "Fill",
+    "FrozenRule",
     "FullInvestment",
     "InsufficientFunds",
     "InsufficientPosition",
+    "JournalEntry",
     "MultiBacktestResult",
     "Order",
+    "PaperRun",
     "Portfolio",
     "Position",
     "PositionSizer",
     "PriceVsSma",
+    "Report",
     "Side",
     "Signal",
     "SmaCrossover",
@@ -51,4 +56,5 @@ __all__ = [
     "run_multi_backtest",
     "sma",
     "total_return_index",
+    "years_to_detect",
 ]

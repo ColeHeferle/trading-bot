@@ -16,6 +16,7 @@ and backtesting them against a paper account.
 | `trading_bot.sizing` | Position sizers: `FullInvestment`, `VolatilityTarget` |
 | `trading_bot.bonds` | Yields to a tradeable constant-maturity total-return index |
 | `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
+| `trading_bot.paper` | Forward testing: a frozen, tamper-evident rule fed bars as they arrive |
 
 Strategies see each candle exactly once, in order, and signals are filled at
 the close of the candle that produced them — so a backtest cannot trade on a
@@ -110,6 +111,31 @@ index = total_return_index(monthly_yields, maturity_years=10, periods_per_year=1
 Each period earns carry minus duration times the change in yield. It is a proxy
 for a bond index, not a bond you could have bought: no convexity, roll-down or
 financing.
+
+## Forward testing, and what it can prove
+
+`trading_bot.paper` runs a rule that was pinned down *before* the data existed.
+`FrozenRule.fingerprint` hashes the strategy, parameters, instrument and costs,
+so any later edit changes the hash and the saved run refuses to load.
+
+```bash
+python research/paper_trade.py paper/spx_sma_50_200.json bars.csv
+```
+
+**It cannot prove profitability, and it is worth being precise about why.** A
+t-statistic grows as `IR × √years`. `SmaCrossover(50, 200)` scored an
+information ratio of 0.046 against buy-and-hold, so telling it apart from luck
+at 95% confidence would take roughly **1,900 years**. Showing merely that its
+return is above zero would take 14. `years_to_detect` computes this for any
+edge — run it before committing to a forward test.
+
+What forward testing *is* good for: catching bugs a backtest hides, noticing
+when a rule stops behaving as it did historically, and keeping an honest record
+that nobody tuned after the fact.
+
+Nor is "profitable every day" achievable. That rule was up on 36% of days and
+its best streak in twenty years was 8 days. A strategy that appeared to win
+every day would indicate a bug, not an edge.
 
 ## Getting started
 

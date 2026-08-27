@@ -1,0 +1,15 @@
+{
+  "rule": {
+    "strategy": "SmaCrossover",
+    "params": {
+      "fast_period": 50,
+      "slow_period": 200
+    },
+    "symbol": "SPX",
+    "initial_cash": 10000.0,
+    "fee_rate": 0.0005,
+    "note": "Frozen 2026-08-26 before any forward data. Chosen because it was the best of the rules backtested on 1999-2018, NOT because it is expected to beat buy-and-hold: its information ratio against the benchmark was 0.046, which would need ~1900 years to distinguish from luck. This run exists to detect implementation bugs and regime breaks, and to keep the rule honest by making any later edit change the fingerprint."
+  },
+  "fingerprint": "90f8b7097c54ac4c",
+  "bars": []
+}

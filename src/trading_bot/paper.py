@@ -1,0 +1,284 @@
+"""Forward testing: run a frozen rule against bars as they arrive.
+
+The point of this module is not to discover an edge. A backtest can be tuned
+until it looks good; a forward test cannot, because the rule is fixed before
+the data exists. What it is actually good for:
+
+- catching implementation bugs that a backtest hides,
+- noticing when a rule stops behaving the way it did historically,
+- and keeping an honest, tamper-evident record of what was decided when.
+
+What it is *not* good for is proving profitability. See `Report.honesty` — for
+a rule whose edge over buy-and-hold is as thin as the ones measured here, the
+forward test would need to run for longer than recorded history before the
+result could be told apart from luck.
+
+State is the whole bar history, replayed on load. Strategies are stateful and
+serializing their internals would be fragile; replaying is deterministic, and
+it means a tampered rule no longer reproduces its own journal.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from .models import Candle, Signal
+from .portfolio import Portfolio
+from .strategy import (
+    BuyAndHold,
+    PriceVsSma,
+    SmaCrossover,
+    Strategy,
+    TimeSeriesMomentum,
+)
+
+# Only rules that can be named here may be frozen, so a run cannot smuggle in
+# an anonymous lambda that nobody can reconstruct later.
+STRATEGIES: dict[str, type[Strategy]] = {
+    "BuyAndHold": BuyAndHold,
+    "SmaCrossover": SmaCrossover,
+    "PriceVsSma": PriceVsSma,
+    "TimeSeriesMomentum": TimeSeriesMomentum,
+}
+
+
+@dataclass(frozen=True)
+class FrozenRule:
+    """A rule pinned down before any forward data exists.
+
+    The `fingerprint` is what makes the freeze meaningful: commit it, and any
+    later change to the strategy, its parameters, the costs or the instrument
+    produces a different one.
+    """
+
+    strategy: str
+    params: dict[str, Any]
+    symbol: str
+    initial_cash: float = 10_000.0
+    fee_rate: float = 0.0005
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        if self.strategy not in STRATEGIES:
+            raise ValueError(
+                f"unknown strategy {self.strategy!r}; "
+                f"known: {sorted(STRATEGIES)}"
+            )
+        if self.initial_cash <= 0:
+            raise ValueError("initial_cash must be positive")
+        if self.fee_rate < 0:
+            raise ValueError("fee_rate must not be negative")
+        # Fail here rather than at the first bar, months later.
+        STRATEGIES[self.strategy](**self.params)
+
+    def build(self) -> Strategy:
+        return STRATEGIES[self.strategy](**self.params)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "strategy": self.strategy,
+            "params": self.params,
+            "symbol": self.symbol,
+            "initial_cash": self.initial_cash,
+            "fee_rate": self.fee_rate,
+            "note": self.note,
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        canonical = json.dumps(self.as_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+@dataclass
+class JournalEntry:
+    timestamp: datetime
+    close: float
+    signal: str
+    quantity: float
+    equity: float
+    benchmark_equity: float
+
+
+@dataclass
+class Report:
+    rule: FrozenRule
+    bars: int
+    started: datetime | None
+    latest: datetime | None
+    equity: float
+    benchmark_equity: float
+    trades: int
+
+    @property
+    def total_return(self) -> float:
+        return self.equity / self.rule.initial_cash - 1.0
+
+    @property
+    def benchmark_return(self) -> float:
+        return self.benchmark_equity / self.rule.initial_cash - 1.0
+
+    @property
+    def excess(self) -> float:
+        return self.total_return - self.benchmark_return
+
+    @property
+    def elapsed_years(self) -> float:
+        if not self.started or not self.latest:
+            return 0.0
+        return (self.latest - self.started).days / 365.25
+
+
+class PaperRun:
+    """A frozen rule, the bars it has seen, and what it did with them."""
+
+    def __init__(self, rule: FrozenRule) -> None:
+        self.rule = rule
+        self.bars: list[Candle] = []
+        self.journal: list[JournalEntry] = []
+        self._reset_engines()
+
+    def _reset_engines(self) -> None:
+        self._strategy = self.rule.build()
+        self._benchmark_strategy = BuyAndHold()
+        self._portfolio = Portfolio(self.rule.initial_cash, self.rule.fee_rate)
+        self._benchmark = Portfolio(self.rule.initial_cash, self.rule.fee_rate)
+        self._long = False
+
+    def step(self, candle: Candle) -> JournalEntry:
+        """Feed one new bar. Bars must arrive in order and only once."""
+        if self.bars and candle.timestamp <= self.bars[-1].timestamp:
+            raise ValueError(
+                f"bar for {candle.timestamp} is not newer than the last seen "
+                f"{self.bars[-1].timestamp}; forward tests never rewrite history"
+            )
+        self.bars.append(candle)
+        return self._apply(candle)
+
+    def _apply(self, candle: Candle) -> JournalEntry:
+        signal = self._strategy.on_candle(candle)
+        if signal is Signal.BUY:
+            self._long = True
+        elif signal is Signal.SELL:
+            self._long = False
+
+        self._trade(self._portfolio, candle, self._long)
+        if self._benchmark_strategy.on_candle(candle) is Signal.BUY:
+            self._trade(self._benchmark, candle, True)
+
+        entry = JournalEntry(
+            timestamp=candle.timestamp,
+            close=candle.close,
+            signal=signal.value,
+            quantity=self._portfolio.quantity(self.rule.symbol),
+            equity=self._portfolio.equity({self.rule.symbol: candle.close}),
+            benchmark_equity=self._benchmark.equity({self.rule.symbol: candle.close}),
+        )
+        self.journal.append(entry)
+        return entry
+
+    def _trade(self, portfolio: Portfolio, candle: Candle, want_long: bool) -> None:
+        from .backtest import _rebalance
+
+        _rebalance(
+            portfolio,
+            self.rule.symbol,
+            candle.close,
+            candle.timestamp,
+            1.0 if want_long else 0.0,
+            threshold=0.2,
+            equity=portfolio.equity({self.rule.symbol: candle.close}),
+        )
+
+    @property
+    def report(self) -> Report:
+        return Report(
+            rule=self.rule,
+            bars=len(self.bars),
+            started=self.bars[0].timestamp if self.bars else None,
+            latest=self.bars[-1].timestamp if self.bars else None,
+            equity=self.journal[-1].equity if self.journal else self.rule.initial_cash,
+            benchmark_equity=(
+                self.journal[-1].benchmark_equity
+                if self.journal
+                else self.rule.initial_cash
+            ),
+            trades=len(self._portfolio.fills),
+        )
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "rule": self.rule.as_dict(),
+                "fingerprint": self.rule.fingerprint,
+                "bars": [
+                    {
+                        "timestamp": c.timestamp.isoformat(),
+                        "open": c.open,
+                        "high": c.high,
+                        "low": c.low,
+                        "close": c.close,
+                        "volume": c.volume,
+                    }
+                    for c in self.bars
+                ],
+            },
+            indent=2,
+        )
+
+    @classmethod
+    def from_json(cls, text: str) -> PaperRun:
+        """Rebuild by replaying the stored bars through the stored rule.
+
+        If the rule was edited after the fact, the fingerprint recorded in the
+        file will not match the one the rule now produces, and this refuses to
+        load rather than quietly reporting results the rule never generated.
+        """
+        payload = json.loads(text)
+        rule = FrozenRule(**payload["rule"])
+        recorded = payload.get("fingerprint")
+        if recorded and recorded != rule.fingerprint:
+            raise ValueError(
+                f"rule fingerprint changed since this run started "
+                f"({recorded} -> {rule.fingerprint}); the frozen rule was edited"
+            )
+
+        run = cls(rule)
+        for bar in payload["bars"]:
+            run.step(
+                Candle(
+                    datetime.fromisoformat(bar["timestamp"]),
+                    bar["open"],
+                    bar["high"],
+                    bar["low"],
+                    bar["close"],
+                    bar.get("volume", 0.0),
+                )
+            )
+        return run
+
+    def save(self, path: str | Path) -> None:
+        Path(path).write_text(self.to_json())
+
+    @classmethod
+    def load(cls, path: str | Path) -> PaperRun:
+        return cls.from_json(Path(path).read_text())
+
+
+def years_to_detect(information_ratio: float, t_stat: float = 2.0) -> float:
+    """Years of forward data needed before an edge clears ``t_stat``.
+
+    The t-statistic of a mean return grows as ``IR * sqrt(years)``, so the
+    required span is ``(t / IR) ** 2``. This is the number that decides whether
+    a forward test can answer the question at all — for a thin edge it comes
+    back in centuries, and no amount of patience fixes that.
+    """
+    if information_ratio <= 0:
+        return math.inf
+    return (t_stat / information_ratio) ** 2
