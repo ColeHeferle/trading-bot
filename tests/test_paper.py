@@ -200,3 +200,126 @@ class TestYearsToDetect:
 
     def test_a_looser_bar_still_takes_years(self):
         assert years_to_detect(0.5, t_stat=1.64) == pytest.approx(10.76, abs=0.01)
+
+
+WARM = FrozenRule(
+    strategy="SmaCrossover",
+    params={"fast_period": 2, "slow_period": 4},
+    symbol="X",
+    initial_cash=1000.0,
+    fee_rate=0.0,
+    # tests.helpers stamps bar i at 2024-01-01 + i days, so this makes bars
+    # 0-6 warmup and everything from bar 7 live.
+    warmup_until="2024-01-08",
+)
+
+CLIMB = [10, 10, 10, 10, 12, 14, 16, 18, 20]
+
+
+def feed(rule, closes):
+    run = PaperRun(rule)
+    entries = [run.step(c) for c in make_candles(closes)]
+    return run, entries
+
+
+class TestWarmupValidation:
+    def test_rejects_a_date_it_cannot_parse(self):
+        with pytest.raises(ValueError, match="warmup_until must be an ISO date"):
+            FrozenRule(
+                strategy="BuyAndHold", params={}, symbol="X", warmup_until="soon"
+            )
+
+    def test_accepts_an_iso_date(self):
+        rule = FrozenRule(
+            strategy="BuyAndHold", params={}, symbol="X", warmup_until="2026-09-01"
+        )
+        assert rule.warmup_boundary.year == 2026
+
+    def test_no_warmup_means_everything_is_live(self):
+        assert PaperRun(RULE).is_live(make_candles([1])[0].timestamp)
+
+
+class TestWarmupFingerprint:
+    def test_rules_frozen_before_warmup_existed_keep_their_fingerprint(self):
+        # `warmup_until=None` is omitted from the hashed payload, so a run
+        # started before this feature still loads.
+        assert "warmup_until" not in RULE.as_dict()
+        explicit_none = FrozenRule(**{**RULE.as_dict(), "warmup_until": None})
+        assert explicit_none.fingerprint == RULE.fingerprint
+
+    def test_setting_a_warmup_changes_the_fingerprint(self):
+        assert WARM.fingerprint != RULE.fingerprint
+
+    def test_moving_the_warmup_boundary_changes_the_fingerprint(self):
+        moved = FrozenRule(**{**WARM.as_dict(), "warmup_until": "2024-01-09"})
+        assert moved.fingerprint != WARM.fingerprint
+
+
+class TestWarmupBehaviour:
+    def test_warmup_bars_return_nothing_and_stay_out_of_the_journal(self):
+        run, entries = feed(WARM, CLIMB)
+        assert entries[:7] == [None] * 7
+        assert all(e is not None for e in entries[7:])
+        assert len(run.journal) == 2
+
+    def test_warmup_bars_do_not_trade(self):
+        run, _ = feed(WARM, CLIMB)
+        assert all(f.timestamp >= WARM.warmup_boundary for f in run.fills)
+
+    def test_the_record_starts_at_the_boundary_not_the_first_bar(self):
+        run, _ = feed(WARM, CLIMB)
+        report = run.report
+        assert report.started == WARM.warmup_boundary
+        assert report.bars == 2
+        assert report.warmup_bars == 7
+
+    def test_a_rule_already_long_enters_on_its_first_live_bar(self):
+        # SmaCrossover(2, 4) crosses up during warmup, so the position is taken
+        # immediately once the record opens rather than waiting for a new cross.
+        run, _ = feed(WARM, CLIMB)
+        assert run.journal[0].quantity > 0
+
+    def test_the_benchmark_starts_at_the_boundary_too(self):
+        run, _ = feed(WARM, CLIMB)
+        # Both sides enter on the same bar, at that bar's close of 18 — not at
+        # the 10 the series opened with seven bars earlier.
+        assert run.journal[0].benchmark_equity == pytest.approx(1000.0, rel=1e-3)
+        assert run.benchmark_fills[0].price == 18
+        assert run.benchmark_fills[0].timestamp == WARM.warmup_boundary
+
+    def test_warmup_does_not_inflate_the_elapsed_window(self):
+        run, _ = feed(WARM, CLIMB)
+        # Two live bars one day apart, not nine.
+        assert run.report.elapsed_years == pytest.approx(1 / 365.25, abs=1e-4)
+
+    def test_a_boundary_after_every_bar_leaves_an_empty_record(self):
+        rule = FrozenRule(**{**WARM.as_dict(), "warmup_until": "2030-01-01"})
+        run, entries = feed(rule, CLIMB)
+        assert entries == [None] * len(CLIMB)
+        assert run.report.bars == 0
+        assert run.report.warmup_bars == len(CLIMB)
+        assert run.report.equity == pytest.approx(1000.0)
+        assert run.fills == []
+        assert run.benchmark_fills == []
+
+
+class TestWarmupPersistence:
+    def test_round_trips_and_replays_the_same_way(self):
+        run, _ = feed(WARM, CLIMB)
+        restored = PaperRun.from_json(run.to_json())
+
+        assert restored.report.bars == run.report.bars
+        assert restored.report.warmup_bars == run.report.warmup_bars
+        assert restored.report.equity == pytest.approx(run.report.equity)
+
+    def test_resuming_across_the_boundary_matches_an_uninterrupted_run(self):
+        part = PaperRun(WARM)
+        for candle in make_candles(CLIMB)[:5]:
+            part.step(candle)
+        resumed = PaperRun.from_json(part.to_json())
+        for candle in make_candles(CLIMB)[5:]:
+            resumed.step(candle)
+
+        straight, _ = feed(WARM, CLIMB)
+        assert resumed.report.equity == pytest.approx(straight.report.equity)
+        assert resumed.report.bars == straight.report.bars

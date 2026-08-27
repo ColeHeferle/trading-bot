@@ -335,7 +335,7 @@ Three things, none of them proof:
 
 ## Running one
 
-`paper/spx_sma_50_200.json` is a rule frozen at fingerprint `90f8b7097c54ac4c`
+`paper/spx_sma_50_200.json` is a rule frozen at fingerprint `f209ac9a054c6df9`
 before any forward data existed. Advance it by appending bars to a CSV and
 running:
 
@@ -343,12 +343,32 @@ running:
 python research/paper_trade.py paper/spx_sma_50_200.json bars.csv
 ```
 
-The state file holds every bar it has seen and replays them on load, so the run
-survives restarts and a tampered rule refuses to load at all. There is no market
-data connection on purpose: whatever feed you use becomes the CSV, and keeping
-the fetch outside means the run cannot be silently re-driven by a vendor that
-revised its history underneath you.
+Only `date` and `close` are required; open, high, low and volume fall back to
+the close. The state file holds every bar it has seen and replays them on load,
+so the run survives restarts and a tampered rule refuses to load at all. There
+is no market data connection on purpose: whatever feed you use becomes the CSV,
+and keeping the fetch outside means the run cannot be silently re-driven by a
+vendor that revised its history underneath you.
 
-One practical note: a 200-day rule needs 200 bars before it can signal at all,
-so a run started from scratch sits in cash for roughly ten months of trading
-days and its early numbers say nothing about the rule.
+## Warmup, and why backfilled bars do not count
+
+A 200-day rule needs 200 bars before it can signal at all, so a run started cold
+sits in cash for roughly ten months. Backfilling history fixes that — but those
+bars are the same history the rule was *selected* on, and letting them into the
+equity curve would dress up in-sample data as forward evidence.
+
+`warmup_until` separates the two. Bars before it advance the strategy's averages
+and its long/flat state but do not trade and do not enter the record; the equity
+curve opens at the boundary, and so does the benchmark. A rule that crossed into
+"long" during warmup takes its position on the first live bar rather than
+waiting for a fresh cross.
+
+```
+new bars      20 live, 250 warmup  (total 20 live, 250 warmup)
+record opens  2026-09-01
+window        2026-09-01 .. 2026-09-20  (0.05 years)
+```
+
+The elapsed window reads 0.05 years, not the 0.74 the bar count would suggest.
+That number feeds the honesty line, so warmup cannot quietly inflate how long a
+result has been running.

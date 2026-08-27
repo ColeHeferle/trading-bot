@@ -133,6 +133,13 @@ What forward testing *is* good for: catching bugs a backtest hides, noticing
 when a rule stops behaving as it did historically, and keeping an honest record
 that nobody tuned after the fact.
 
+A 200-day rule needs 200 bars before it can signal, so backfill history — but
+set `warmup_until` when you do. Bars before that date advance the strategy's
+averages without trading or entering the record, because they are the same
+history the rule was selected on and counting them would pass in-sample data off
+as forward evidence. The equity curve and the benchmark both open at the
+boundary.
+
 Nor is "profitable every day" achievable. That rule was up on 36% of days and
 its best streak in twenty years was 8 days. A strategy that appeared to win
 every day would indicate a bug, not an edge.
