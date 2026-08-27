@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Candle, Signal
+from .models import Candle, Fill, Signal
 from .portfolio import Portfolio
 from .strategy import (
     BuyAndHold,
@@ -63,6 +63,7 @@ class FrozenRule:
     initial_cash: float = 10_000.0
     fee_rate: float = 0.0005
     note: str = ""
+    warmup_until: str | None = None
 
     def __post_init__(self) -> None:
         if self.strategy not in STRATEGIES:
@@ -74,14 +75,28 @@ class FrozenRule:
             raise ValueError("initial_cash must be positive")
         if self.fee_rate < 0:
             raise ValueError("fee_rate must not be negative")
+        if self.warmup_until is not None:
+            try:
+                datetime.fromisoformat(self.warmup_until)
+            except ValueError as exc:
+                raise ValueError(
+                    f"warmup_until must be an ISO date, got {self.warmup_until!r}"
+                ) from exc
         # Fail here rather than at the first bar, months later.
         STRATEGIES[self.strategy](**self.params)
+
+    @property
+    def warmup_boundary(self) -> datetime | None:
+        """First instant that counts as live, or None if everything counts."""
+        if self.warmup_until is None:
+            return None
+        return datetime.fromisoformat(self.warmup_until)
 
     def build(self) -> Strategy:
         return STRATEGIES[self.strategy](**self.params)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        fields = {
             "strategy": self.strategy,
             "params": self.params,
             "symbol": self.symbol,
@@ -89,6 +104,11 @@ class FrozenRule:
             "fee_rate": self.fee_rate,
             "note": self.note,
         }
+        # Absent and None are the same rule, and omitting the key keeps the
+        # fingerprints of runs frozen before warmup existed unchanged.
+        if self.warmup_until is not None:
+            fields["warmup_until"] = self.warmup_until
+        return fields
 
     @property
     def fingerprint(self) -> str:
@@ -115,6 +135,7 @@ class Report:
     equity: float
     benchmark_equity: float
     trades: int
+    warmup_bars: int = 0
 
     @property
     def total_return(self) -> float:
@@ -151,8 +172,12 @@ class PaperRun:
         self._benchmark = Portfolio(self.rule.initial_cash, self.rule.fee_rate)
         self._long = False
 
-    def step(self, candle: Candle) -> JournalEntry:
-        """Feed one new bar. Bars must arrive in order and only once."""
+    def step(self, candle: Candle) -> JournalEntry | None:
+        """Feed one new bar. Bars must arrive in order and only once.
+
+        Returns None for a warmup bar: it advances the strategy's averages but
+        does not trade and does not enter the record.
+        """
         if self.bars and candle.timestamp <= self.bars[-1].timestamp:
             raise ValueError(
                 f"bar for {candle.timestamp} is not newer than the last seen "
@@ -161,14 +186,28 @@ class PaperRun:
         self.bars.append(candle)
         return self._apply(candle)
 
-    def _apply(self, candle: Candle) -> JournalEntry:
+    def is_live(self, stamp: datetime) -> bool:
+        boundary = self.rule.warmup_boundary
+        return boundary is None or stamp >= boundary
+
+    def _apply(self, candle: Candle) -> JournalEntry | None:
         signal = self._strategy.on_candle(candle)
         if signal is Signal.BUY:
             self._long = True
         elif signal is Signal.SELL:
             self._long = False
 
+        # Warmup bars exist only to fill the strategy's windows. They must not
+        # trade and must not reach the equity curve: they are history the rule
+        # was chosen against, so counting them would dress up in-sample data as
+        # forward evidence. The long/flat state they leave behind is kept, so a
+        # rule already long on the freeze date enters on its first live bar.
+        if not self.is_live(candle.timestamp):
+            return None
+
         self._trade(self._portfolio, candle, self._long)
+        # The benchmark is only fed live bars, so buy-and-hold starts on the
+        # same bar the rule does rather than at the top of the warmup.
         if self._benchmark_strategy.on_candle(candle) is Signal.BUY:
             self._trade(self._benchmark, candle, True)
 
@@ -197,12 +236,24 @@ class PaperRun:
         )
 
     @property
+    def fills(self) -> list[Fill]:
+        """Everything the rule traded. Empty while still in warmup."""
+        return self._portfolio.fills
+
+    @property
+    def benchmark_fills(self) -> list[Fill]:
+        return self._benchmark.fills
+
+    @property
     def report(self) -> Report:
+        # Counted from the journal, not the bar list, so warmup never inflates
+        # the elapsed window a result is judged over.
         return Report(
             rule=self.rule,
-            bars=len(self.bars),
-            started=self.bars[0].timestamp if self.bars else None,
-            latest=self.bars[-1].timestamp if self.bars else None,
+            bars=len(self.journal),
+            warmup_bars=len(self.bars) - len(self.journal),
+            started=self.journal[0].timestamp if self.journal else None,
+            latest=self.journal[-1].timestamp if self.journal else None,
             equity=self.journal[-1].equity if self.journal else self.rule.initial_cash,
             benchmark_equity=(
                 self.journal[-1].benchmark_equity

@@ -54,12 +54,14 @@ def main(argv: list[str]) -> int:
     run = PaperRun.load(state_path)
     seen = run.bars[-1].timestamp if run.bars else None
 
-    added = 0
+    added = warmed = 0
     for candle in read_bars(bars_path):
         if seen is not None and candle.timestamp <= seen:
             continue
-        run.step(candle)
-        added += 1
+        if run.step(candle) is None:
+            warmed += 1
+        else:
+            added += 1
 
     run.save(state_path)
     report = run.report
@@ -67,10 +69,21 @@ def main(argv: list[str]) -> int:
     print(f"rule          {report.rule.strategy}{report.rule.params}")
     print(f"fingerprint   {report.rule.fingerprint}")
     print(f"symbol        {report.rule.symbol}")
-    print(f"new bars      {added}  (total {report.bars})")
+    print(f"new bars      {added} live, {warmed} warmup  "
+          f"(total {report.bars} live, {report.warmup_bars} warmup)")
+    if report.rule.warmup_until:
+        print(f"record opens  {report.rule.warmup_until}")
     if report.started:
         print(f"window        {report.started.date()} .. {report.latest.date()}"
               f"  ({report.elapsed_years:.2f} years)")
+    else:
+        print("window        still warming up — nothing counted yet")
+        print()
+        print("Backfilled bars fill the strategy's windows but stay out of the")
+        print("record: they are history the rule was chosen against, and "
+              "counting")
+        print("them would dress up in-sample data as forward evidence.")
+        return 0
     print()
     print(f"equity        {report.equity:>12,.2f}   {report.total_return:>8.2%}")
     print(f"buy and hold  {report.benchmark_equity:>12,.2f}   "
