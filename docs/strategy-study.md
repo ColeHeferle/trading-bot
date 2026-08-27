@@ -278,3 +278,77 @@ allocation, not the diversification.
 Monthly sampling cannot see intra-month drawdowns, so every max drawdown here
 is understated and every Sharpe flattered relative to the daily figures earlier
 in this document. Compare monthly against monthly, not against the daily study.
+
+---
+
+# Can a forward test prove this makes money?
+
+No. Not for these rules, and the arithmetic says so before the test starts.
+
+## The number that settles it
+
+A t-statistic on mean return grows as `IR × √years`, so reaching `t = 2` needs
+`(2 / IR)²` years. Measured on 1999–2018 S&P 500 data, `SmaCrossover(50, 200)`
+scored an **information ratio of 0.046 against buy-and-hold**.
+
+| what you want to show | information ratio | years to t = 2 |
+| --- | ---: | ---: |
+| the rule's return is above zero | 0.53 | **14** |
+| the rule beats buy-and-hold | 0.046 | **~1,900** |
+
+Fourteen years to establish that a rule with a 0.53 Sharpe makes money at all.
+Nineteen centuries to establish that it beats simply holding the index. No
+amount of patience closes that gap, because the edge is not small — it is
+indistinguishable from zero.
+
+`trading_bot.paper.years_to_detect` computes this. Run it on a strategy before
+committing to forward-test it; if the answer exceeds a working lifetime, the
+test cannot answer the question and a different question is needed.
+
+## "Profitable every day" is the wrong target
+
+On the same data, `SmaCrossover(50, 200)`:
+
+- was up on **36%** of days (it sits in cash a third of the time, and a flat day
+  is not a winning one),
+- beat buy-and-hold on **45%** of days,
+- and its longest winning streak in twenty years was **8 days**.
+
+Any real strategy loses on a large fraction of days; that is what taking risk
+means. A rule that appeared to win every day would signal a bug — lookahead,
+a stale mark, a fee that never got charged — not a discovery.
+
+## What a forward test is still worth doing for
+
+Three things, none of them proof:
+
+1. **Bugs a backtest hides.** Lookahead, survivorship, a fill at a price that
+   was never available. Live bars arriving one at a time expose these.
+2. **Regime breaks.** Not "is there an edge" but "is this behaving the way it
+   did historically" — position count, exposure, trade frequency drifting from
+   the backtest is a real signal, and it shows up in months, not centuries.
+3. **A tamper-evident record.** `FrozenRule.fingerprint` hashes the strategy,
+   its parameters, the instrument and the costs. Commit it before the data
+   exists, and any later edit changes the hash. This is the whole value: it
+   makes it impossible to quietly tune the rule after seeing the results and
+   then present the outcome as a forward test.
+
+## Running one
+
+`paper/spx_sma_50_200.json` is a rule frozen at fingerprint `90f8b7097c54ac4c`
+before any forward data existed. Advance it by appending bars to a CSV and
+running:
+
+```bash
+python research/paper_trade.py paper/spx_sma_50_200.json bars.csv
+```
+
+The state file holds every bar it has seen and replays them on load, so the run
+survives restarts and a tampered rule refuses to load at all. There is no market
+data connection on purpose: whatever feed you use becomes the CSV, and keeping
+the fetch outside means the run cannot be silently re-driven by a vendor that
+revised its history underneath you.
+
+One practical note: a 200-day rule needs 200 bars before it can signal at all,
+so a run started from scratch sits in cash for roughly ten months of trading
+days and its early numbers say nothing about the rule.
