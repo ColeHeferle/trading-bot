@@ -16,3 +16,15 @@ BARS="${BARS:-paper/spx_bars.csv}"
 
 "$PYTHON" research/fetch_bars.py --out "$BARS" "$@"
 "$PYTHON" research/paper_trade.py "$STATE" "$BARS"
+
+# The broker leg runs every day but only reports, unless TRADE=execute is set.
+# Exercising the whole path daily is what catches bugs; placing orders is a
+# separate decision, so it takes a deliberate environment variable.
+if [ -n "${BROKER_SYMBOL:-}" ]; then
+  echo
+  if [ "${TRADE:-dry}" = "execute" ]; then
+    "$PYTHON" research/trade.py --symbol "$BROKER_SYMBOL" --execute
+  else
+    "$PYTHON" research/trade.py --symbol "$BROKER_SYMBOL"
+  fi
+fi

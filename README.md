@@ -18,7 +18,8 @@ and backtesting them against a paper account.
 | `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
 | `trading_bot.feed` | Reading, writing and merging bar CSVs, with revision detection |
 | `trading_bot.paper` | Forward testing: a frozen, tamper-evident rule fed bars as they arrive |
-| `trading_bot.broker` | Alpaca paper sandbox: accounts, positions, retry-safe orders, reconciliation |
+| `trading_bot.broker` | Alpaca paper sandbox: accounts, positions, prices, retry-safe orders |
+| `trading_bot.live` | Turning the rule's decision into a sized order, with refusals |
 
 Strategies see each candle exactly once, in order, and signals are filled at
 the close of the candle that produced them — so a backtest cannot trade on a
@@ -188,11 +189,44 @@ the broker's over the union of both, so a position the broker holds that the run
 knows nothing about — a stray nobody is managing — shows up rather than being
 skipped.
 
-Two things this deliberately does not do. It is **not wired into the daily
-loop**: the adapter can place an order when asked, and nothing asks it yet.
-And the rule is frozen on `SPX`, which **you cannot buy** — `broker_check.py`
+The rule is frozen on `SPX`, which **you cannot buy** — `broker_check.py`
 compares against `SPY` and says so, because that is a different instrument with
-its own price and dividend treatment.
+its own price and dividend treatment. Acting on the rule is the next section.
+
+## Acting on the rule
+
+`research/trade.py` reads the frozen rule's current decision and brings the
+broker position to match. **It is a dry run unless `--execute` is passed**, and
+`daily.sh` runs it in that mode every day when `BROKER_SYMBOL` is set:
+
+```bash
+BROKER_SYMBOL=SPY research/daily.sh              # fetch, advance, report
+BROKER_SYMBOL=SPY TRADE=execute research/daily.sh  # …and place the order
+```
+
+Exercising the whole path daily is what catches bugs; placing orders is a
+separate decision, so it takes a deliberate environment variable.
+
+`--symbol` is required rather than defaulted. The rule is frozen on an index
+you cannot buy, so choosing the instrument you actually trade is a decision.
+
+**Sizing uses the traded instrument's own price**, fetched from the broker —
+never the index level the rule watched. An S&P level near 6,400 against an ETF
+near 640 is a tenfold sizing error, and a silent one.
+
+Three things refuse to trade rather than guessing:
+
+- a **stale bar** (older than `--max-bar-age-days`, default 4) means the feed is
+  behind, and acting on a price that may be days old is worse than doing nothing;
+- a **position that disagrees** with `paper/live_position.json` halts everything,
+  because trading on top of a divergence compounds it;
+- an order over the **risk limits** is rejected before it is sent.
+
+Buys round *down* to whole shares so a sizing error undershoots. Exits sell the
+entire position and are never banded: flat means flat.
+
+One gap no code closes: the rule decides at a close, and a market order fills at
+the next available price. That slippage is in no backtest number here.
 
 ## Getting started
 

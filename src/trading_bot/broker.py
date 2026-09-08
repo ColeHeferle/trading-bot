@@ -28,6 +28,8 @@ from .models import Side
 
 PAPER_URL = "https://paper-api.alpaca.markets"
 LIVE_URL = "https://api.alpaca.markets"
+# Market data lives on its own host, and is the same for paper and live.
+DATA_URL = "https://data.alpaca.markets"
 
 # Alpaca's terminal and in-flight order states.
 FILLED = "filled"
@@ -173,6 +175,15 @@ class Broker(ABC):
         self, symbol: str, side: Side, quantity: float, order_id: str
     ) -> BrokerOrder: ...
 
+    @abstractmethod
+    def latest_price(self, symbol: str) -> float:
+        """Last traded price of `symbol`.
+
+        Sizing needs the price of the thing being bought. A rule may decide on
+        an index it cannot trade, and sizing an order off that index's level
+        would buy the wrong amount by whatever ratio separates the two.
+        """
+
     def position(self, symbol: str) -> BrokerPosition:
         for held in self.positions():
             if held.symbol == symbol:
@@ -197,6 +208,7 @@ class AlpacaBroker(Broker):
         transport: Transport | None = None,
         limits: RiskLimits | None = None,
         allow_live: bool = False,
+        data_transport: Transport | None = None,
     ) -> None:
         if base_url.rstrip("/") != PAPER_URL and not allow_live:
             raise BrokerError(
@@ -208,6 +220,9 @@ class AlpacaBroker(Broker):
         self.is_paper = self.base_url == PAPER_URL
         self.limits = limits or RiskLimits()
         self._transport = transport or HttpTransport(base_url, key_id, secret_key)
+        self._data = data_transport or (
+            HttpTransport(DATA_URL, key_id, secret_key) if transport is None else transport
+        )
 
     def account(self) -> Account:
         payload = self._transport.request("GET", "/v2/account")
@@ -257,6 +272,18 @@ class AlpacaBroker(Broker):
             if existing is None:
                 raise
             return existing
+
+    def latest_price(self, symbol: str) -> float:
+        payload = self._data.request("GET", f"/v2/stocks/{symbol}/trades/latest")
+        try:
+            price = float(payload["trade"]["p"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BrokerError(
+                f"could not read a latest price for {symbol} from {payload!r}"
+            ) from exc
+        if price <= 0:
+            raise BrokerError(f"latest price for {symbol} was {price}")
+        return price
 
     def order_by_client_id(self, order_id: str) -> BrokerOrder | None:
         try:
