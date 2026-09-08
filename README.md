@@ -18,6 +18,7 @@ and backtesting them against a paper account.
 | `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
 | `trading_bot.feed` | Reading, writing and merging bar CSVs, with revision detection |
 | `trading_bot.paper` | Forward testing: a frozen, tamper-evident rule fed bars as they arrive |
+| `trading_bot.broker` | Alpaca paper sandbox: accounts, positions, retry-safe orders, reconciliation |
 
 Strategies see each candle exactly once, in order, and signals are filled at
 the close of the candle that produced them — so a backtest cannot trade on a
@@ -159,6 +160,39 @@ boundary.
 Nor is "profitable every day" achievable. That rule was up on 36% of days and
 its best streak in twenty years was 8 days. A strategy that appeared to win
 every day would indicate a bug, not an edge.
+
+## Talking to a broker
+
+`trading_bot.broker` speaks Alpaca's v2 API over the standard library — no SDK,
+so the package stays dependency-free. Start with the read-only check, which
+places no orders:
+
+```bash
+export APCA_API_KEY_ID=...  APCA_API_SECRET_KEY=...
+python research/broker_check.py
+```
+
+**It refuses the live endpoint unless you pass `allow_live=True`.** Paper is not
+just the default: a live URL without that flag raises, so a copied config or a
+stray environment variable cannot quietly move real money.
+
+**Orders are retry-safe.** `client_order_id` derives a stable id from the rule
+fingerprint, the bar date, the symbol and the side — not from the clock or a
+random source. If the process dies between sending an order and recording the
+response, the retry produces the *same* id, the broker rejects it as a
+duplicate, and the adapter returns the original fill instead of opening a second
+position.
+
+**`reconcile` checks both directions.** It compares intended holdings against
+the broker's over the union of both, so a position the broker holds that the run
+knows nothing about — a stray nobody is managing — shows up rather than being
+skipped.
+
+Two things this deliberately does not do. It is **not wired into the daily
+loop**: the adapter can place an order when asked, and nothing asks it yet.
+And the rule is frozen on `SPX`, which **you cannot buy** — `broker_check.py`
+compares against `SPY` and says so, because that is a different instrument with
+its own price and dividend treatment.
 
 ## Getting started
 

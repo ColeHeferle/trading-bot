@@ -8,6 +8,19 @@ from .backtest import (
     run_multi_backtest,
 )
 from .bonds import modified_duration, par_bond_returns, total_return_index
+from .broker import (
+    Account,
+    AlpacaBroker,
+    Broker,
+    BrokerError,
+    BrokerOrder,
+    BrokerPosition,
+    Reconciliation,
+    RiskLimitExceeded,
+    RiskLimits,
+    client_order_id,
+    reconcile,
+)
 from .feed import BadBar, MergeResult, format_csv, merge, parse_csv, parse_stooq
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
@@ -25,8 +38,14 @@ from .strategy import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "Account",
+    "AlpacaBroker",
     "BacktestResult",
     "BadBar",
+    "Broker",
+    "BrokerError",
+    "BrokerOrder",
+    "BrokerPosition",
     "BuyAndHold",
     "Candle",
     "EquityMetrics",
@@ -44,13 +63,17 @@ __all__ = [
     "Position",
     "PositionSizer",
     "PriceVsSma",
+    "Reconciliation",
     "Report",
+    "RiskLimitExceeded",
+    "RiskLimits",
     "Side",
     "Signal",
     "SmaCrossover",
     "Strategy",
     "TimeSeriesMomentum",
     "VolatilityTarget",
+    "client_order_id",
     "ema",
     "format_csv",
     "merge",
@@ -58,6 +81,7 @@ __all__ = [
     "par_bond_returns",
     "parse_csv",
     "parse_stooq",
+    "reconcile",
     "rsi",
     "run_backtest",
     "run_multi_backtest",
