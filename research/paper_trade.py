@@ -18,31 +18,11 @@ that changed its history underneath you.
 
 from __future__ import annotations
 
-import csv
+import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
-from trading_bot import Candle, PaperRun, years_to_detect
-
-
-def read_bars(path: Path) -> list[Candle]:
-    bars = []
-    with path.open(newline="") as handle:
-        for row in csv.DictReader(handle):
-            stamp = datetime.fromisoformat(row["date"])
-            close = float(row["close"])
-            bars.append(
-                Candle(
-                    stamp,
-                    float(row.get("open") or close),
-                    float(row.get("high") or close),
-                    float(row.get("low") or close),
-                    close,
-                    float(row.get("volume") or 0.0),
-                )
-            )
-    return sorted(bars, key=lambda c: c.timestamp)
+from trading_bot import PaperRun, parse_csv, years_to_detect
 
 
 def main(argv: list[str]) -> int:
@@ -55,7 +35,7 @@ def main(argv: list[str]) -> int:
     seen = run.bars[-1].timestamp if run.bars else None
 
     added = warmed = 0
-    for candle in read_bars(bars_path):
+    for candle in parse_csv(bars_path.read_text()):
         if seen is not None and candle.timestamp <= seen:
             continue
         if run.step(candle) is None:
@@ -102,5 +82,15 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def _run(entry) -> int:
+    """Exit quietly when stdout goes away — this gets piped into `head` and
+    log rotators, and a traceback there is noise, not information."""
+    try:
+        return entry()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(_run(lambda: main(sys.argv)))

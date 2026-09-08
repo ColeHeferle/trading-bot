@@ -340,8 +340,14 @@ before any forward data existed. Advance it by appending bars to a CSV and
 running:
 
 ```bash
-python research/paper_trade.py paper/spx_sma_50_200.json bars.csv
+research/daily.sh                                          # fetch, then advance
+python research/paper_trade.py paper/spx_sma_50_200.json bars.csv   # advance only
 ```
+
+`fetch_bars.py` pulls daily bars from Stooq (no dependencies) or yfinance and
+merges them into the CSV. It never overwrites a date already stored: a vendor
+restatement is reported as a REVISION and the recorded bar is kept, because
+deciding the vendor is right is not something a cron job should do at 10pm.
 
 Only `date` and `close` are required; open, high, low and volume fall back to
 the close. The state file holds every bar it has seen and replays them on load,
