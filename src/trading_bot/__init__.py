@@ -8,6 +8,7 @@ from .backtest import (
     run_multi_backtest,
 )
 from .bonds import modified_duration, par_bond_returns, total_return_index
+from .feed import BadBar, MergeResult, format_csv, merge, parse_csv, parse_stooq
 from .indicators import ema, rsi, sma
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .paper import FrozenRule, JournalEntry, PaperRun, Report, years_to_detect
@@ -25,6 +26,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "BacktestResult",
+    "BadBar",
     "BuyAndHold",
     "Candle",
     "EquityMetrics",
@@ -34,6 +36,7 @@ __all__ = [
     "InsufficientFunds",
     "InsufficientPosition",
     "JournalEntry",
+    "MergeResult",
     "MultiBacktestResult",
     "Order",
     "PaperRun",
@@ -49,8 +52,12 @@ __all__ = [
     "TimeSeriesMomentum",
     "VolatilityTarget",
     "ema",
+    "format_csv",
+    "merge",
     "modified_duration",
     "par_bond_returns",
+    "parse_csv",
+    "parse_stooq",
     "rsi",
     "run_backtest",
     "run_multi_backtest",

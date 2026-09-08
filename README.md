@@ -16,6 +16,7 @@ and backtesting them against a paper account.
 | `trading_bot.sizing` | Position sizers: `FullInvestment`, `VolatilityTarget` |
 | `trading_bot.bonds` | Yields to a tradeable constant-maturity total-return index |
 | `trading_bot.backtest` | Replays candles through a strategy — one symbol or a basket |
+| `trading_bot.feed` | Reading, writing and merging bar CSVs, with revision detection |
 | `trading_bot.paper` | Forward testing: a frozen, tamper-evident rule fed bars as they arrive |
 
 Strategies see each candle exactly once, in order, and signals are filled at
@@ -119,8 +120,23 @@ financing.
 so any later edit changes the hash and the saved run refuses to load.
 
 ```bash
-python research/paper_trade.py paper/spx_sma_50_200.json bars.csv
+research/daily.sh                    # fetch today's bar, then advance the run
 ```
+
+That wrapper is two idempotent steps — `fetch_bars.py` merges new bars into a
+CSV, `paper_trade.py` feeds them to the frozen rule — so it is safe on a cron
+schedule and a double-run or market holiday is a no-op:
+
+```
+0 22 * * 1-5 /path/to/trading-bot/research/daily.sh >> /tmp/paper.log 2>&1
+```
+
+**Dates already recorded are never overwritten.** If the vendor restates a bar
+you have already stored, it is reported as a REVISION and the stored value is
+kept — a forward test whose past silently changes is not a record of anything.
+`--strict` makes that exit non-zero so cron surfaces it. A failed fetch also
+exits non-zero, which stops the wrapper before the run is advanced: no fetch,
+no new bars.
 
 **It cannot prove profitability, and it is worth being precise about why.** A
 t-statistic grows as `IR × √years`. `SmaCrossover(50, 200)` scored an
