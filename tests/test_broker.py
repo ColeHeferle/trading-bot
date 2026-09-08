@@ -280,3 +280,25 @@ class TestReconcile:
 
     def test_a_real_difference_is_not_dust(self):
         assert not Reconciliation("SPY", 12.0, 12.01).matches
+
+
+class TestLatestPrice:
+    def test_reads_the_last_trade(self):
+        api, _ = broker({
+            ("GET", "/v2/stocks/SPY/trades/latest"): {
+                "symbol": "SPY", "trade": {"p": 641.23, "s": 100}
+            }
+        })
+        assert api.latest_price("SPY") == 641.23
+
+    def test_rejects_a_shape_it_cannot_read(self):
+        api, _ = broker({("GET", "/v2/stocks/SPY/trades/latest"): {"oops": True}})
+        with pytest.raises(BrokerError, match="could not read a latest price"):
+            api.latest_price("SPY")
+
+    def test_rejects_a_non_positive_price(self):
+        api, _ = broker({
+            ("GET", "/v2/stocks/SPY/trades/latest"): {"trade": {"p": 0}}
+        })
+        with pytest.raises(BrokerError, match="latest price for SPY was 0"):
+            api.latest_price("SPY")
