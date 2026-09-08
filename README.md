@@ -158,6 +158,16 @@ history the rule was selected on and counting them would pass in-sample data off
 as forward evidence. The equity curve and the benchmark both open at the
 boundary.
 
+**How much history you backfill can decide whether the bot launches long or
+flat.** `SmaCrossover` signals on the *crossing*, not on the state after it, so
+it enters only when it observes a transition — the first bar where both averages
+exist returns HOLD, whatever their order. Backfill a window whose whole span sits
+above the 200-day average and the rule sees no cross and holds nothing; backfill
+further, catch the golden cross that started the trend, and it launches long. A
+cross seen during warmup does carry over: the position is taken on the first live
+bar rather than waiting for a fresh one. Check which case you are in before
+launching, rather than discovering it as a month of unexplained flatness.
+
 Nor is "profitable every day" achievable. That rule was up on 36% of days and
 its best streak in twenty years was 8 days. A strategy that appeared to win
 every day would indicate a bug, not an edge.
@@ -189,9 +199,12 @@ the broker's over the union of both, so a position the broker holds that the run
 knows nothing about — a stray nobody is managing — shows up rather than being
 skipped.
 
-The rule is frozen on `SPX`, which **you cannot buy** — `broker_check.py`
-compares against `SPY` and says so, because that is a different instrument with
-its own price and dividend treatment. Acting on the rule is the next section.
+The rule is frozen on `SPY` — the thing actually traded. It named `SPX` until
+2026-09-08, which was a mistake worth naming: an index cannot be bought, so the
+record and the position described different instruments with different prices
+and different dividend treatment. That was corrected while the run held zero
+bars; after months of forward data the correction would have cost the whole
+record. Acting on the rule is the next section.
 
 ## Acting on the rule
 

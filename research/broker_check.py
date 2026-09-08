@@ -25,7 +25,7 @@ from trading_bot import AlpacaBroker, BrokerError, PaperRun, reconcile
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--state", type=Path, default=Path("paper/spx_sma_50_200.json"))
+    parser.add_argument("--state", type=Path, default=Path("paper/spy_sma_50_200.json"))
     parser.add_argument(
         "--symbol",
         default="SPY",
@@ -68,11 +68,13 @@ def main(argv: list[str] | None = None) -> int:
     expected = run.journal[-1].quantity if run.journal else 0.0
     print(f"\nreconciling {args.state.name} against the broker")
     if run.rule.symbol != args.symbol:
-        # The frozen rule names an index. You cannot buy an index.
+        # The rule is frozen on SPY, so this is normally silent. It fires if
+        # someone points --symbol at something else, which is worth saying out
+        # loud: the record would then describe an instrument nobody holds.
         print(
-            f"  note: rule is frozen on {run.rule.symbol}, which is not "
-            f"tradeable; comparing against {args.symbol}, a different "
-            "instrument with its own price and dividend treatment"
+            f"  note: rule is frozen on {run.rule.symbol} but this compares "
+            f"against {args.symbol}, a different instrument with its own "
+            "price and dividend treatment"
         )
 
     rows = reconcile({args.symbol: expected}, broker)

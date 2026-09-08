@@ -1,7 +1,7 @@
 """Fetch daily bars and merge them into a CSV, safe to run on a schedule.
 
-    python research/fetch_bars.py --out paper/spx_bars.csv
-    python research/fetch_bars.py --out paper/spx_bars.csv --source yfinance
+    python research/fetch_bars.py --out paper/spy_bars.csv
+    python research/fetch_bars.py --out paper/spy_bars.csv --source yfinance
 
 Idempotent: re-running adds nothing. Dates already in the file are never
 overwritten — if the vendor now reports different values for a day already
@@ -31,7 +31,7 @@ from trading_bot.feed import format_csv, merge, parse_csv, parse_stooq
 from trading_bot.models import Candle
 
 STOOQ_URL = "https://stooq.com/q/d/l/?s={symbol}&i=d"
-DEFAULTS = {"stooq": "^spx", "yfinance": "^GSPC"}
+DEFAULTS = {"stooq": "spy.us", "yfinance": "SPY"}
 
 
 def from_stooq(symbol: str, timeout: int) -> list[Candle]:
@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--source", choices=sorted(DEFAULTS), default="stooq")
-    parser.add_argument("--symbol", help="defaults to the source's S&P 500 ticker")
+    parser.add_argument("--symbol", help="defaults to the source's ticker for the traded instrument")
     parser.add_argument("--start", help="yfinance only, e.g. 2025-06-01")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument(
