@@ -61,7 +61,7 @@ def save_expected(path: Path, symbol: str, quantity: float, order_id: str) -> No
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Act on the frozen rule.")
     parser.add_argument("--symbol", required=True, help="the instrument to trade")
-    parser.add_argument("--state", type=Path, default=Path("paper/spx_sma_50_200.json"))
+    parser.add_argument("--state", type=Path, default=Path("paper/spy_sma_50_200.json"))
     parser.add_argument("--live", type=Path, default=Path("paper/live_position.json"))
     parser.add_argument("--execute", action="store_true", help="place the order")
     parser.add_argument("--max-bar-age-days", type=int, default=4)
@@ -84,8 +84,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"rule          {run.rule.strategy}{run.rule.params} [{run.rule.fingerprint}]")
     print(f"decision      {'LONG' if want_long else 'FLAT'} as of {latest.timestamp.date()}")
-    print(f"index close   {latest.close:,.2f} ({run.rule.symbol})")
-    print(f"trading       {args.symbol}  (a different instrument to {run.rule.symbol};\n                    sized on its own price, not the index level)")
+    print(f"last close    {latest.close:,.2f} ({run.rule.symbol})")
+    if args.symbol == run.rule.symbol:
+        print(f"trading       {args.symbol}  (sized on its live price, not this close)")
+    else:
+        # The record would describe an instrument nobody holds.
+        print(
+            f"trading       {args.symbol}  (a DIFFERENT instrument to "
+            f"{run.rule.symbol};\n                    sized on its own price, "
+            "and the record will not match what is held)"
+        )
 
     expected = load_expected(args.live)
     if expected is None:
