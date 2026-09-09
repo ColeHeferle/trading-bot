@@ -57,11 +57,33 @@ result = run_backtest(
 ```
 
 `VolatilityTarget` holds `target_volatility / realized_volatility` of equity, so
-it shrinks into turmoil and grows into calm. In the study it **cut drawdown in
-every pairing tested** — Nasdaq buy-and-hold went from a 77.9% drawdown to 46.7%
-while *also* improving return — but it usually costs some return, and stacking
-it on a trend rule that already goes flat in crashes made things worse, not
-better. It is a risk control, not a return booster.
+it shrinks into turmoil and grows into calm. It **cut drawdown in every pairing
+tested** — Nasdaq buy-and-hold went from a 77.9% drawdown to 46.7% while *also*
+improving return.
+
+An earlier version of this section said that stacking it on a trend rule which
+already goes flat in crashes made things worse. **That was too broad.** It held
+for `SmaCrossover(50, 200)` in the original study, but on Nasdaq daily bars with
+`SmaCrossover(10, 50)` the pairing is the best equity configuration measured
+here:
+
+| sizing | CAGR | Sharpe | max drawdown | trades/yr |
+| --- | --- | --- | --- | --- |
+| buy and hold | 5.66% | 0.34 | **77.9%** | 0.1 |
+| SMA(10,50), fully invested | 5.55% | 0.44 | 42.8% | 5.9 |
+| SMA(10,50), 15% target | 5.01% | **0.53** | 18.7% | 7.7 |
+| SMA(10,50), 25% target | **5.66%** | 0.51 | **30.3%** | 6.6 |
+
+The 25% row matches buy-and-hold's return with well under half the drawdown, at
+under seven trades a year, and holds up to 20bps a side.
+
+Read that as risk control, not as an edge. Charged for every rule tried on these
+two indices, the Sharpe improvement deflates to p = 0.39 and does not survive —
+see `trading_bot.deflated_sharpe`. What is worth trusting is the drawdown
+reduction, and for a reason that does not depend on this backtest: holding
+`target_vol / realized_vol` of equity mechanically shrinks the position as
+markets get violent. That is arithmetic rather than a pattern found by
+searching.
 
 ## Trading a basket
 

@@ -482,3 +482,68 @@ This does not formally settle bonds: currencies are a different asset class,
 and it remains possible that bonds genuinely trend while currencies do not. A
 real bond instrument quoted at month-end close would settle it. No market-data
 host is reachable from here, and no public mirror carrying one was found.
+
+## Volatility targeting on a fast trend rule (2026-09-09)
+
+The sizing section of the README claimed that volatility targeting stacked on a
+trend rule which already goes flat in crashes made things worse. That was drawn
+from `SmaCrossover(50, 200)` and stated too broadly. On Nasdaq daily bars with a
+faster rule it is the best equity configuration measured in this repo.
+
+All figures 1999-2018 daily, 5 bps per side, 5,031 bars. Both index series pass
+`trading_bot.smoothness` (S&P lag-1 -0.071, Nasdaq -0.032), so these are
+genuinely observed prices.
+
+| sizing | CAGR | Sharpe | max drawdown | exposure | trades/yr |
+| --- | --- | --- | --- | --- | --- |
+| buy and hold | 5.66% | 0.34 | 77.9% | 100% | 0.1 |
+| SMA(10,50), fully invested | 5.55% | 0.44 | 42.8% | 62% | 5.9 |
+| SMA(10,50), 10% target | 3.59% | 0.49 | 14.1% | 60% | 9.4 |
+| SMA(10,50), 15% target | 5.01% | 0.53 | 18.7% | 60% | 7.7 |
+| SMA(10,50), 20% target | 5.50% | 0.53 | 23.7% | 61% | 6.9 |
+| SMA(10,50), 25% target | 5.66% | 0.51 | 30.3% | 61% | 6.6 |
+
+The 25% target matches buy-and-hold's return to two decimal places with a
+drawdown of 30.3% against 77.9%. Costs do not break it: Sharpe 0.56 at zero
+fees, 0.53 at 5bps, 0.47 at 20bps.
+
+**The Sharpe improvement does not survive deflation.** Charged only against the
+five volatility targets it reads p = 0.988; charged against every rule tried on
+these two indices in the same sitting it reads p = 0.392, and the second number
+is the honest one. Counting only the last five variants of a long search is
+precisely the self-flattery the deflated Sharpe exists to prevent.
+
+The drawdown reduction is a separate claim and a sturdier one, because it does
+not rest on this backtest at all. Holding `target_vol / realized_vol` of equity
+shrinks the position as volatility rises, by construction. That is arithmetic,
+and it showed up in every pairing tested in the original study as well.
+
+### Short horizons on the same data
+
+The comparison that produced this started as a search for short-term gains
+across US equity indices. The Dow could not be included: it is not in the
+bundled data and no market-data host is reachable from here.
+
+Every short-horizon rule lost to doing nothing, on both indices, and the
+shorter the horizon the worse the result:
+
+| rule (S&P 500) | CAGR | trades/yr | cost drag |
+| --- | --- | --- | --- |
+| TSMOM(5) | -4.29% | 52.0 | 2.52% |
+| PvSMA(10) | -4.91% | 46.3 | 2.23% |
+| SMA(5,20) | -2.32% | 15.9 | 0.78% |
+| SMA(20,100) | 2.06% | 3.1 | 0.16% |
+| buy and hold | 3.63% | 0 | 0 |
+
+Cost drag tracks turnover almost linearly. At 52 trades a year and 5bps a side
+the drag is 2.5% annually against an index returning 3.6% — most of the return
+gone before the rule has to be right about anything.
+
+Daily lag-1 autocorrelation is *negative* on both indices, so short-horizon
+mean reversion is what the data actually suggests rather than momentum. Buying
+1% falls and selling 1% rises on the S&P scored 0.36 against 0.28 for
+buy-and-hold, needed 37 trades a year, and deflated to p = 0.78 across 24
+variants. It does not survive either.
+
+The horizon is the problem, not the index. Nothing at daily frequency on these
+markets offers an edge larger than the cost of trading it.
