@@ -31,6 +31,7 @@ from pathlib import Path
 
 from trading_bot import BadBar, Candle, PaperRun, Signal, parse_csv
 
+
 def replay(rule, bars: list[Candle]) -> list[tuple[int, Candle, Signal]]:
     """Every non-HOLD signal the rule produces over `bars`, with its index."""
     strategy = rule.build()
