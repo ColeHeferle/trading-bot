@@ -436,3 +436,49 @@ What survives every cut is the drawdown, roughly halved in three of four
 independent multi-decade periods, at 0.8 trades a year and near-total
 insensitivity to fees. That is a risk control, not an edge — the same conclusion
 this document reached on 20 years, now confirmed on 92.
+
+### Confirmed on real data: the same pipeline, two vendors
+
+The correction above rested on a simulation. It can be checked directly,
+because the universe contains a controlled comparison. Run
+`research/data_quality.py`:
+
+```
+series                 bars    lag-1    lag-2   lag-1²  verdict
+fx:Australia            668   +0.011   +0.011   +0.000  clean
+fx:Canada               668   -0.051   +0.005   +0.003  clean
+fx:Euro                 332   +0.041   -0.010   +0.002  clean
+fx:Japan                668   +0.052   +0.069   +0.003  clean
+fx:Switzerland          668   +0.012   +0.027   +0.000  clean
+fx:United Kingdom       668   +0.060   +0.032   +0.004  clean
+nasdaq                  240   +0.071   -0.021   +0.005  clean
+sp500                   240   +0.073   -0.042   +0.005  clean
+ust10y                  879   +0.316   -0.060   +0.100  SUSPICIOUS
+wti                     397   +0.122   -0.046   +0.015  clean
+```
+
+Every series here goes through the same loader, the same monthly reduction and
+the same backtest. Nine are clean and one is not. The difference is upstream of
+all of it: `to_monthly` keeps each month's **last** observation, so the daily
+currency and equity feeds arrive as month-end closes, while the yield series is
+published already averaged over the month.
+
+That removes the innocent explanations. It is not the duration model, not the
+monthly sampling, and not the backtest engine, because the clean series share
+all three. It is the source data.
+
+The strategy results follow the data quality exactly. On the six currency
+series — genuinely observed, six independent markets, 55 years — **none of 66
+strategy/lookback combinations survives deflation**:
+
+| data | best rule | vs buy-and-hold | deflated p |
+| --- | --- | --- | --- |
+| bonds, monthly *averages* | 1.15–1.34 | 0.83–0.98 | **1.000** |
+| FX, month-*end*, 6 markets | 0.42 | 0.32 | **0.740** |
+
+The edge appears where the averaging is, and nowhere else.
+
+This does not formally settle bonds: currencies are a different asset class,
+and it remains possible that bonds genuinely trend while currencies do not. A
+real bond instrument quoted at month-end close would settle it. No market-data
+host is reachable from here, and no public mirror carrying one was found.
