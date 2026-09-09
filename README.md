@@ -206,6 +206,40 @@ and different dividend treatment. That was corrected while the run held zero
 bars; after months of forward data the correction would have cost the whole
 record. Acting on the rule is the next section.
 
+## Before the first launch
+
+`research/preflight.py` says what the bot will do on its first live bar, before
+it does it. It reads only — no broker, no orders, and it does not advance the
+run:
+
+```bash
+python research/preflight.py paper/spy_sma_50_200.json paper/spy_bars.csv
+```
+
+It answers one question that is otherwise unanswerable until a month of
+flatness has gone by: **does the rule open long or flat, and is that a decision
+or an accident of where the history starts?**
+
+Those two flats look identical everywhere else. `SmaCrossover` signals on the
+crossing, not the state after it, so a backfill window sitting entirely above
+the 200-day average contains no transition and the rule holds nothing through a
+rally it can see perfectly well. Backfill further, catch the cross that began
+the trend, and the same rule on the same day opens long instead. Preflight
+separates the two:
+
+```
+opens         FLAT — SELL on 2025-11-18 is the rule's last word     # a decision
+opens         FLAT — but no crossing was ever witnessed             # an accident
+```
+
+The second exits non-zero, with the two averages printed so you can see the
+trend it is declining to trade. Pass `--accept-flat-start` to launch that way
+deliberately. It also blocks on too little history, a warmup boundary with too
+few bars behind it, a stale file, and bars dated in the future — which no feed
+legitimately produces, and which usually means a timezone bug.
+
+Exit 0 means ready. Run it again after any change to the backfill.
+
 ## Acting on the rule
 
 `research/trade.py` reads the frozen rule's current decision and brings the
