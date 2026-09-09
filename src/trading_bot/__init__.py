@@ -28,10 +28,13 @@ from .models import Candle, Fill, Order, Position, Side, Signal
 from .paper import FrozenRule, JournalEntry, PaperRun, Report, years_to_detect
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
 from .significance import (
+    SmoothnessCheck,
+    autocorrelation,
     deflated_sharpe,
     expected_max_sharpe,
     moments,
     probabilistic_sharpe,
+    smoothness,
 )
 from .sizing import FullInvestment, PositionSizer, VolatilityTarget
 from .strategy import (
@@ -77,12 +80,14 @@ __all__ = [
     "RiskLimitExceeded",
     "RiskLimits",
     "Side",
+    "SmoothnessCheck",
     "Signal",
     "SmaCrossover",
     "Strategy",
     "TimeSeriesMomentum",
     "VolatilityTarget",
     "check_freshness",
+    "autocorrelation",
     "check_reconciled",
     "client_order_id",
     "deflated_sharpe",
@@ -103,6 +108,7 @@ __all__ = [
     "run_backtest",
     "run_multi_backtest",
     "sma",
+    "smoothness",
     "total_return_index",
     "years_to_detect",
 ]

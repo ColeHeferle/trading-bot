@@ -93,11 +93,14 @@ be good on its own to earn its place, so long as it is not merely a worse copy
 of what is already there: crude was the weakest single market and still improved
 the basket.
 
-Widening further to bonds and currencies splits the same way. Bonds were the
-best single asset tested (0.69 Sharpe, 9.4% drawdown) and improved every basket;
-currencies diluted them, though that result is spot-only and so omits carry,
-which is most of what currency strategies earn. See
-[`docs/strategy-study.md`](docs/strategy-study.md).
+Widening further to bonds and currencies splits the same way. Bonds looked like
+the best single asset tested (0.69 Sharpe, 9.4% drawdown) and improved every
+basket. **Treat that number as unreliable.** The bond series is built here from
+published yields, which are monthly *averages* of daily observations, and
+averaging a random-walk-like series manufactures serial correlation that trend
+rules read as an edge — see `trading_bot.smoothness` and the note in
+[`docs/strategy-study.md`](docs/strategy-study.md). The currency result is
+spot-only and so omits carry, which is most of what currency strategies earn.
 
 ## Trading bonds
 

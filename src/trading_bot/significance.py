@@ -18,13 +18,17 @@ correction is about the number of observations, not the calendar.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from statistics import NormalDist
 
 __all__ = [
+    "SmoothnessCheck",
+    "autocorrelation",
     "expected_max_sharpe",
     "probabilistic_sharpe",
     "deflated_sharpe",
     "moments",
+    "smoothness",
 ]
 
 _NORMAL = NormalDist()
@@ -117,3 +121,74 @@ def deflated_sharpe(
     return probabilistic_sharpe(
         sharpe, len(returns), skew=skew, kurtosis=kurt, benchmark=bar
     )
+
+
+@dataclass(frozen=True)
+class SmoothnessCheck:
+    """Whether a return series looks observed or averaged."""
+
+    lag1: float
+    lag2: float
+    lag3: float
+    expected_lag2: float
+    suspicious: bool
+
+    def describe(self) -> str:
+        if not self.suspicious:
+            return (
+                f"lag-1 autocorrelation {self.lag1:+.3f}, decaying as persistence "
+                "should — no averaging signature"
+            )
+        return (
+            f"lag-1 autocorrelation {self.lag1:+.3f} but lag-2 only "
+            f"{self.lag2:+.3f}, where genuine persistence would give about "
+            f"{self.expected_lag2:+.3f}. That is the signature of averaged "
+            "rather than observed data, and a momentum rule will read it as an "
+            "edge."
+        )
+
+
+def autocorrelation(returns: list[float], lag: int = 1) -> float:
+    """Correlation of `returns` with itself `lag` periods earlier."""
+    if lag < 1:
+        raise ValueError("lag must be at least 1")
+    if len(returns) <= lag + 1:
+        raise ValueError(f"need more than {lag + 1} returns")
+    n = len(returns)
+    mean = sum(returns) / n
+    denominator = sum((r - mean) ** 2 for r in returns)
+    if denominator <= 0:
+        return 0.0
+    numerator = sum(
+        (returns[i] - mean) * (returns[i + lag] - mean) for i in range(n - lag)
+    )
+    return numerator / denominator
+
+
+def smoothness(
+    returns: list[float],
+    threshold: float = 0.2,
+    tolerance: float = 0.5,
+) -> SmoothnessCheck:
+    """Flag a series whose persistence looks manufactured by averaging.
+
+    A price series built from period-*average* quotes — most published yield
+    histories, and any index quoted as a mean of its constituents' days —
+    carries autocorrelation that the underlying market does not have. Trend
+    rules find it immediately, and the backtest that results is measuring the
+    vendor's arithmetic rather than an edge.
+
+    The tell is the shape, not the size. Genuine persistence decays roughly
+    geometrically, so an AR(1)-ish series with lag-1 correlation *r* shows
+    about *r²* at lag 2. Averaging lifts lag 1 alone and leaves lag 2 near
+    zero. So a large lag-1 with a lag-2 far below `r²` means the smoothing came
+    from the data pipeline, not the market.
+
+    This cannot prove data is clean — only that this particular flaw is absent.
+    """
+    lag1 = autocorrelation(returns, 1)
+    lag2 = autocorrelation(returns, 2)
+    lag3 = autocorrelation(returns, 3)
+    expected = lag1 * lag1
+    suspicious = lag1 > threshold and lag2 < expected * tolerance
+    return SmoothnessCheck(lag1, lag2, lag3, expected, suspicious)
