@@ -378,3 +378,61 @@ window        2026-09-01 .. 2026-09-20  (0.05 years)
 The elapsed window reads 0.05 years, not the 0.74 the bar count would suggest.
 That number feeds the honesty line, so warmup cannot quietly inflate how long a
 result has been running.
+
+## Correction: the bond results are probably an artifact (2026-09-09)
+
+Every bond number in this document, and the "bonds were the best single asset"
+conclusion drawn from it, should be treated as unreliable.
+
+The bond series here is not observed. It is built by `trading_bot.bonds` from
+published yields, and those yields — Moody's AAA/BAA, and the Treasury constant
+maturity series — are **monthly averages of daily observations**. Yields behave
+roughly like a random walk, and averaging a random walk over non-overlapping
+blocks induces about +0.25 serial correlation in the changes where the month-end
+observation would show none. This is Working's (1960) result, and it is
+reproduced as a test in `tests/test_significance.py`.
+
+A trend-following rule reads that manufactured persistence as an edge:
+
+| series | lag-1 | lag-2 | lag-3 |
+| --- | --- | --- | --- |
+| AAA corporate, built from yields | **+0.325** | −0.037 | −0.024 |
+| BAA corporate, built from yields | **+0.310** | +0.028 | −0.083 |
+| UST 10y, built from yields | **+0.316** | −0.060 | +0.004 |
+| US equity, true month-end | +0.106 | −0.021 | −0.094 |
+
+Three things mark it as an artifact rather than real momentum. The lag-1 is
+three times that of a genuinely observed series; lag-2 and lag-3 are ~zero,
+where real persistence decays geometrically (about lag-1²); and the best rule
+was `TSMOM(1)`, the shortest lookback possible, which is precisely the symptom a
+one-lag artifact predicts.
+
+The replication on Moody's corporates — independent issuers, independent credit,
+starting 34 years earlier — reproduced the *effect* but shares the *defect*:
+same construction, same averaged source. Independent data, common flaw.
+
+The decisive test is a real instrument quoted at month-end close: IEF, TLT, or
+Treasury futures. No market-data host is reachable from the environment this was
+written in, so it has not been run.
+
+`trading_bot.smoothness` now flags this class of series. Run it on any price
+history before trusting a trend result measured on it.
+
+### What survives
+
+On 1,109 months of true month-end US equity returns (1926–2018, Fama-French
+market factor), trend-following does **not** reliably beat buy-and-hold on
+Sharpe — 0.75 against 0.61 raw, which deflates to p = 0.52 once charged for the
+full search. It wins in crashes and loses in rallies:
+
+| period | B&H Sharpe | TSMOM(12) | B&H drawdown | TSMOM(12) |
+| --- | --- | --- | --- | --- |
+| 1926–49 | 0.36 | **0.49** | 83.7% | **44.1%** |
+| 1950–79 | **0.81** | 0.72 | 46.4% | **16.1%** |
+| 1980–99 | **1.12** | 1.05 | 29.9% | 29.9% |
+| 2000–18 | 0.47 | **0.82** | 50.4% | **17.7%** |
+
+What survives every cut is the drawdown, roughly halved in three of four
+independent multi-decade periods, at 0.8 trades a year and near-total
+insensitivity to fees. That is a risk control, not an edge — the same conclusion
+this document reached on 20 years, now confirmed on 92.
