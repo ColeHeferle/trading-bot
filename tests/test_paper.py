@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import math
+import random
+from datetime import datetime, timedelta
 
 import pytest
 
+from trading_bot import Candle, FullInvestment
 from trading_bot.paper import (
     FrozenRule,
     PaperRun,
@@ -323,3 +326,165 @@ class TestWarmupPersistence:
         straight, _ = feed(WARM, CLIMB)
         assert resumed.report.equity == pytest.approx(straight.report.equity)
         assert resumed.report.bars == straight.report.bars
+
+
+class TestFrozenRuleSizing:
+    """A frozen rule can name a position sizer, not just a strategy."""
+
+    def rule(self, **kw):
+        return FrozenRule(
+            strategy="SmaCrossover",
+            params={"fast_period": 3, "slow_period": 8},
+            symbol="X",
+            **kw,
+        )
+
+    def test_a_rule_without_a_sizer_is_fully_invested(self):
+        assert isinstance(self.rule().build_sizer(), FullInvestment)
+
+    def test_omitting_the_sizer_keeps_the_old_fingerprint(self):
+        """Runs frozen before sizers existed must still load.
+
+        The hashed payload omits the key entirely when unset, so adding the
+        field cannot silently invalidate a record already being kept.
+        """
+        payload = self.rule().as_dict()
+        assert "sizer" not in payload and "sizer_params" not in payload
+
+    def test_naming_a_sizer_changes_the_fingerprint(self):
+        plain = self.rule().fingerprint
+        sized = self.rule(
+            sizer="VolatilityTarget", sizer_params={"target_volatility": 0.25}
+        ).fingerprint
+        assert plain != sized
+
+    def test_the_sizer_parameters_are_part_of_the_freeze(self):
+        a = self.rule(sizer="VolatilityTarget",
+                      sizer_params={"target_volatility": 0.10}).fingerprint
+        b = self.rule(sizer="VolatilityTarget",
+                      sizer_params={"target_volatility": 0.25}).fingerprint
+        assert a != b, "retuning the target must break the freeze"
+
+    def test_an_unknown_sizer_is_refused_at_freeze_time(self):
+        with pytest.raises(ValueError, match="unknown sizer"):
+            self.rule(sizer="Martingale")
+
+    def test_bad_sizer_parameters_are_refused_at_freeze_time(self):
+        """Not months later, on the first bar that tries to size."""
+        with pytest.raises(ValueError):
+            self.rule(sizer="VolatilityTarget",
+                      sizer_params={"target_volatility": -1.0})
+
+    def test_params_without_a_sizer_are_refused(self):
+        with pytest.raises(ValueError, match="without a sizer"):
+            self.rule(sizer_params={"target_volatility": 0.25})
+
+    def test_a_sized_rule_survives_a_save_and_load(self, tmp_path):
+        rule = self.rule(sizer="VolatilityTarget",
+                         sizer_params={"target_volatility": 0.25})
+        path = tmp_path / "r.json"
+        PaperRun(rule).save(path)
+        loaded = PaperRun.load(path)
+        assert loaded.rule.sizer == "VolatilityTarget"
+        assert loaded.rule.sizer_params == {"target_volatility": 0.25}
+        assert loaded.rule.fingerprint == rule.fingerprint
+
+
+class TestPaperRunSizing:
+    def bars(self, n, quiet=0.004, loud=0.03, loud_from=None, loud_to=None):
+        rng = random.Random(5)
+        out, price, day = [], 100.0, datetime(2026, 1, 1)
+        for i in range(n):
+            noisy = loud_from is not None and loud_from <= i <= loud_to
+            price *= 1 + rng.gauss(0.001, loud if noisy else quiet)
+            out.append(Candle(day + timedelta(days=i), price, price * 1.001,
+                              price * 0.999, price))
+        return out
+
+    def feed(self, rule, bars):
+        run = PaperRun(rule)
+        for bar in bars:
+            run.step(bar)
+        return run
+
+    def sized(self, **params):
+        return FrozenRule(
+            strategy="SmaCrossover", params={"fast_period": 3, "slow_period": 8},
+            symbol="X", sizer="VolatilityTarget",
+            sizer_params={"target_volatility": 0.15, "lookback": 20, **params},
+        )
+
+    def test_the_position_shrinks_when_the_market_turns_violent(self):
+        """The whole point of the sizer, measured rather than asserted."""
+        bars = self.bars(240, loud_from=90, loud_to=150)
+        run = PaperRun(self.sized())
+        calm, loud = [], []
+        for i, bar in enumerate(bars):
+            run.step(bar)
+            if not run._long:
+                continue
+            (loud if 110 <= i <= 150 else calm if i < 90 or i > 190 else []).append(
+                run.target_weight
+            )
+        assert calm and loud, "need both regimes to compare"
+        assert sum(loud) / len(loud) < sum(calm) / len(calm) / 2, (
+            f"violent {sum(loud)/len(loud):.2f} should be far under "
+            f"calm {sum(calm)/len(calm):.2f}"
+        )
+
+    def test_the_sizer_sees_bars_the_rule_is_flat_for(self):
+        """The bug this test exists for, and it must actually catch it.
+
+        Volatility is a property of the market, not of what we hold. A sizer
+        fed only while long is starved through every flat stretch, so when the
+        rule turns long again its window is empty and it holds nothing — the
+        rule would sit out the entry it just signalled.
+
+        A sustained decline keeps the rule flat throughout, so the window can
+        only fill if flat bars reach the sizer.
+        """
+        rng = random.Random(9)
+        price, day, falling = 100.0, datetime(2026, 1, 1), []
+        for i in range(80):
+            price *= 1 - abs(rng.gauss(0.004, 0.002))
+            falling.append(Candle(day + timedelta(days=i), price, price * 1.001,
+                                  price * 0.999, price))
+        run = self.feed(self.sized(lookback=20), falling)
+
+        assert not run._long, "the fixture must keep the rule flat throughout"
+        assert run._sizer.realized_volatility is not None, (
+            "the volatility window never filled: the sizer was starved on the "
+            "bars the rule was flat for"
+        )
+
+    def test_a_flat_rule_targets_zero_however_calm_the_market(self):
+        run = self.feed(self.sized(), self.bars(30))
+        run._long = False
+        run._apply(self.bars(31)[-1])
+        assert run.target_weight == 0.0
+
+    def test_an_unsized_run_still_goes_fully_invested(self):
+        rule = FrozenRule(strategy="SmaCrossover",
+                          params={"fast_period": 3, "slow_period": 8}, symbol="X")
+        run = self.feed(rule, self.bars(120))
+        assert run.target_weight in (0.0, 1.0)
+
+    def test_the_benchmark_is_never_sized(self):
+        """Buy-and-hold is the thing being beaten; sizing it would move the bar."""
+        bars = self.bars(200, loud_from=90, loud_to=130)
+        plain = self.feed(FrozenRule(strategy="SmaCrossover",
+                                     params={"fast_period": 3, "slow_period": 8},
+                                     symbol="X"), bars)
+        sized = self.feed(self.sized(), bars)
+        assert plain.report.benchmark_equity == pytest.approx(
+            sized.report.benchmark_equity
+        )
+
+    def test_replay_on_load_reproduces_the_sized_run(self, tmp_path):
+        bars = self.bars(150, loud_from=60, loud_to=100)
+        run = self.feed(self.sized(), bars)
+        path = tmp_path / "r.json"
+        run.save(path)
+        again = PaperRun.load(path)
+        assert again.target_weight == pytest.approx(run.target_weight)
+        assert again.report.equity == pytest.approx(run.report.equity)

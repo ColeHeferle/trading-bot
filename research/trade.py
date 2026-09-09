@@ -79,11 +79,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     latest = run.journal[-1]
-    want_long = latest.quantity > 0
+    # The run's own target weight, not `quantity > 0`. A rule frozen with a
+    # volatility target asks for a different fraction of equity every day, and
+    # reading it as a boolean would silently trade the full size instead.
+    target_weight = run.target_weight
     broker = AlpacaBroker(key, secret)
 
+    sizing = run.rule.sizer or "fully invested"
     print(f"rule          {run.rule.strategy}{run.rule.params} [{run.rule.fingerprint}]")
-    print(f"decision      {'LONG' if want_long else 'FLAT'} as of {latest.timestamp.date()}")
+    print(f"sizing        {sizing}")
+    print(f"decision      {'LONG' if target_weight > 0 else 'FLAT'} at weight "
+          f"{target_weight:.2f} as of {latest.timestamp.date()}")
     print(f"last close    {latest.close:,.2f} ({run.rule.symbol})")
     if args.symbol == run.rule.symbol:
         print(f"trading       {args.symbol}  (sized on its live price, not this close)")
@@ -103,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         intent = plan(
             broker,
             args.symbol,
-            want_long,
+            target_weight,
             latest.timestamp,
             datetime.now(),
             expected_quantity=expected,

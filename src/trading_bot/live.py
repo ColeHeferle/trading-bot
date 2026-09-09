@@ -80,14 +80,19 @@ def check_reconciled(rows: list[Reconciliation]) -> None:
 
 def plan_order(
     symbol: str,
-    want_long: bool,
+    target_weight: float,
     price: float,
     equity: float,
     current_quantity: float,
     threshold: float = 0.2,
     whole_shares: bool = True,
 ) -> Intent:
-    """How many shares to move to reach the rule's target.
+    """How many shares to move to reach the rule's target weight.
+
+    `target_weight` is the fraction of equity the rule wants held: 1.0 for a
+    fully invested long, 0.0 for flat, and anything between for a sized
+    position. A rule frozen with a volatility target asks for a different
+    weight every day, so this cannot be a boolean.
 
     Sizing is against *broker* equity, not the simulated portfolio: the account
     that will actually be charged is the one that decides what is affordable.
@@ -96,13 +101,17 @@ def plan_order(
     the entire position rather than a rounded target, because leaving a rump
     holding after the rule has gone flat is its own kind of wrong.
     """
+    if not 0.0 <= target_weight <= 1.0:
+        raise ValueError(
+            f"target_weight must be between 0 and 1, got {target_weight}; "
+            "the account cannot borrow"
+        )
     if price <= 0 or equity <= 0:
         return Intent(symbol, None, 0.0, "no price or no equity")
 
     current_weight = current_quantity * price / equity
-    target_weight = 1.0 if want_long else 0.0
 
-    if not want_long:
+    if target_weight <= 0:
         if current_quantity <= 0:
             return Intent(symbol, None, 0.0, "already flat")
         # Exits are never banded: flat means flat.
@@ -115,24 +124,33 @@ def plan_order(
             symbol,
             None,
             0.0,
-            f"within the {threshold:g} band (weight {current_weight:.2f})",
+            f"within the {threshold:g} band (weight {current_weight:.2f}, "
+            f"target {target_weight:.2f})",
         )
 
-    target_quantity = equity / price
+    target_quantity = equity * target_weight / price
     delta = target_quantity - current_quantity
     if whole_shares:
-        delta = math.floor(delta)
-    if delta <= 0:
-        return Intent(symbol, None, 0.0, "less than one whole share to buy")
+        # Floor toward the current position either way, so a rounding error
+        # never overshoots the target weight in either direction.
+        delta = math.floor(delta) if delta > 0 else math.ceil(delta)
+    if delta == 0:
+        return Intent(symbol, None, 0.0, "less than one whole share to move")
+    if delta > 0:
+        return Intent(
+            symbol, Side.BUY, float(delta),
+            f"target {target_weight:.2f}, holding {current_weight:.2f}",
+        )
     return Intent(
-        symbol, Side.BUY, float(delta), f"rule is long, weight {current_weight:.2f}"
+        symbol, Side.SELL, float(-delta),
+        f"trimming to {target_weight:.2f} from {current_weight:.2f}",
     )
 
 
 def plan(
     broker: Broker,
     symbol: str,
-    want_long: bool,
+    target_weight: float,
     latest_bar: datetime,
     now: datetime,
     expected_quantity: float | None = None,
@@ -159,5 +177,6 @@ def plan(
     account = broker.account()
     traded_price = price if price is not None else broker.latest_price(symbol)
     return plan_order(
-        symbol, want_long, traded_price, account.equity, held.quantity, threshold
+        symbol, target_weight, traded_price, account.equity, held.quantity,
+        threshold,
     )
