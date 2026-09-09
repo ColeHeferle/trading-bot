@@ -27,6 +27,12 @@ from .live import Intent, NotSafeToTrade, check_freshness, check_reconciled, pla
 from .models import Candle, Fill, Order, Position, Side, Signal
 from .paper import FrozenRule, JournalEntry, PaperRun, Report, years_to_detect
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
+from .significance import (
+    deflated_sharpe,
+    expected_max_sharpe,
+    moments,
+    probabilistic_sharpe,
+)
 from .sizing import FullInvestment, PositionSizer, VolatilityTarget
 from .strategy import (
     BuyAndHold,
@@ -79,15 +85,19 @@ __all__ = [
     "check_freshness",
     "check_reconciled",
     "client_order_id",
+    "deflated_sharpe",
+    "expected_max_sharpe",
     "ema",
     "format_csv",
     "merge",
+    "moments",
     "modified_duration",
     "par_bond_returns",
     "parse_csv",
     "parse_stooq",
     "plan",
     "plan_order",
+    "probabilistic_sharpe",
     "reconcile",
     "rsi",
     "run_backtest",
