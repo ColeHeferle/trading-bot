@@ -30,6 +30,7 @@ from typing import Any
 
 from .models import Candle, Fill, Signal
 from .portfolio import Portfolio
+from .sizing import FullInvestment, PositionSizer, VolatilityTarget
 from .strategy import (
     BuyAndHold,
     PriceVsSma,
@@ -45,6 +46,11 @@ STRATEGIES: dict[str, type[Strategy]] = {
     "SmaCrossover": SmaCrossover,
     "PriceVsSma": PriceVsSma,
     "TimeSeriesMomentum": TimeSeriesMomentum,
+}
+
+SIZERS: dict[str, type[PositionSizer]] = {
+    "FullInvestment": FullInvestment,
+    "VolatilityTarget": VolatilityTarget,
 }
 
 
@@ -64,6 +70,8 @@ class FrozenRule:
     fee_rate: float = 0.0005
     note: str = ""
     warmup_until: str | None = None
+    sizer: str | None = None
+    sizer_params: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.strategy not in STRATEGIES:
@@ -82,8 +90,15 @@ class FrozenRule:
                 raise ValueError(
                     f"warmup_until must be an ISO date, got {self.warmup_until!r}"
                 ) from exc
+        if self.sizer is not None and self.sizer not in SIZERS:
+            raise ValueError(
+                f"unknown sizer {self.sizer!r}; known: {sorted(SIZERS)}"
+            )
+        if self.sizer is None and self.sizer_params:
+            raise ValueError("sizer_params given without a sizer")
         # Fail here rather than at the first bar, months later.
         STRATEGIES[self.strategy](**self.params)
+        self.build_sizer()
 
     @property
     def warmup_boundary(self) -> datetime | None:
@@ -95,6 +110,16 @@ class FrozenRule:
     def build(self) -> Strategy:
         return STRATEGIES[self.strategy](**self.params)
 
+    def build_sizer(self) -> PositionSizer:
+        """The sizer this rule was frozen with, or full investment.
+
+        A rule frozen without one is fully invested whenever it is long, which
+        is what every run recorded before sizers existed did.
+        """
+        if self.sizer is None:
+            return FullInvestment()
+        return SIZERS[self.sizer](**(self.sizer_params or {}))
+
     def as_dict(self) -> dict[str, Any]:
         fields = {
             "strategy": self.strategy,
@@ -105,9 +130,14 @@ class FrozenRule:
             "note": self.note,
         }
         # Absent and None are the same rule, and omitting the key keeps the
-        # fingerprints of runs frozen before warmup existed unchanged.
+        # fingerprints of runs frozen before warmup existed unchanged. The same
+        # applies to sizing: a rule with no sizer hashes exactly as it did
+        # before sizers existed, so already-frozen runs still load.
         if self.warmup_until is not None:
             fields["warmup_until"] = self.warmup_until
+        if self.sizer is not None:
+            fields["sizer"] = self.sizer
+            fields["sizer_params"] = self.sizer_params or {}
         return fields
 
     @property
@@ -167,10 +197,12 @@ class PaperRun:
 
     def _reset_engines(self) -> None:
         self._strategy = self.rule.build()
+        self._sizer = self.rule.build_sizer()
         self._benchmark_strategy = BuyAndHold()
         self._portfolio = Portfolio(self.rule.initial_cash, self.rule.fee_rate)
         self._benchmark = Portfolio(self.rule.initial_cash, self.rule.fee_rate)
         self._long = False
+        self._last_weight = 0.0
 
     def step(self, candle: Candle) -> JournalEntry | None:
         """Feed one new bar. Bars must arrive in order and only once.
@@ -197,6 +229,19 @@ class PaperRun:
         elif signal is Signal.SELL:
             self._long = False
 
+        # Fed on every bar including warmup. A sizer that only saw live bars
+        # would hold nothing for its first `lookback` days of real trading,
+        # which is the same in-sample trap warmup exists to avoid — except it
+        # would cost real position rather than just accuracy.
+        # Fed on EVERY bar, whatever the position: volatility is a property of
+        # the market, not of what we happen to be holding. Feeding it only
+        # while long would estimate from a discontinuous subsample and leave
+        # the window empty through any flat stretch, so the rule would come
+        # back from being flat holding nothing.
+        sized = self._sizer.weight(candle)
+        weight = sized if self._long else 0.0
+        self._last_weight = weight
+
         # Warmup bars exist only to fill the strategy's windows. They must not
         # trade and must not reach the equity curve: they are history the rule
         # was chosen against, so counting them would dress up in-sample data as
@@ -205,11 +250,11 @@ class PaperRun:
         if not self.is_live(candle.timestamp):
             return None
 
-        self._trade(self._portfolio, candle, self._long)
+        self._trade(self._portfolio, candle, weight)
         # The benchmark is only fed live bars, so buy-and-hold starts on the
         # same bar the rule does rather than at the top of the warmup.
         if self._benchmark_strategy.on_candle(candle) is Signal.BUY:
-            self._trade(self._benchmark, candle, True)
+            self._trade(self._benchmark, candle, 1.0)
 
         entry = JournalEntry(
             timestamp=candle.timestamp,
@@ -222,7 +267,7 @@ class PaperRun:
         self.journal.append(entry)
         return entry
 
-    def _trade(self, portfolio: Portfolio, candle: Candle, want_long: bool) -> None:
+    def _trade(self, portfolio: Portfolio, candle: Candle, weight: float) -> None:
         from .backtest import _rebalance
 
         _rebalance(
@@ -230,10 +275,21 @@ class PaperRun:
             self.rule.symbol,
             candle.close,
             candle.timestamp,
-            1.0 if want_long else 0.0,
+            weight,
             threshold=0.2,
             equity=portfolio.equity({self.rule.symbol: candle.close}),
         )
+
+    @property
+    def target_weight(self) -> float:
+        """The fraction of equity the rule wants held right now.
+
+        This is what the live path must act on. A rule with no sizer answers
+        1.0 or 0.0; one frozen with a volatility target answers a different
+        number every day, and acting on `journal[-1].quantity > 0` instead
+        would silently discard the sizing.
+        """
+        return self._last_weight
 
     @property
     def fills(self) -> list[Fill]:

@@ -176,6 +176,32 @@ What forward testing *is* good for: catching bugs a backtest hides, noticing
 when a rule stops behaving as it did historically, and keeping an honest record
 that nobody tuned after the fact.
 
+**A frozen rule can name a sizer as well as a strategy.** Without one it is
+fully invested whenever it is long, which is what every run recorded before
+sizers existed did — the hashed payload omits the key entirely when unset, so
+adding this could not invalidate a record already being kept.
+
+```python
+FrozenRule(
+    strategy="SmaCrossover",
+    params={"fast_period": 10, "slow_period": 50},
+    symbol="QQQ",
+    sizer="VolatilityTarget",
+    sizer_params={"target_volatility": 0.25},
+)
+```
+
+The sizer's parameters are part of the freeze, so retuning the target breaks
+the fingerprint exactly as retuning the strategy does. `PaperRun.target_weight`
+is the fraction of equity the rule wants held right now, and it is what the
+live path acts on — reading `journal[-1].quantity > 0` instead would silently
+trade full size.
+
+The sizer is fed **every** bar, including warmup and bars the rule is flat for.
+Volatility is a property of the market, not of what is held: a sizer fed only
+while long is starved through each flat stretch, so the rule would come back
+from being flat holding nothing.
+
 A 200-day rule needs 200 bars before it can signal, so backfill history — but
 set `warmup_until` when you do. Bars before that date advance the strategy's
 averages without trading or entering the record, because they are the same
