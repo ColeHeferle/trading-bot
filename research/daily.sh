@@ -20,11 +20,14 @@ BARS="${BARS:-paper/qqq_bars.csv}"
 # The broker leg runs every day but only reports, unless TRADE=execute is set.
 # Exercising the whole path daily is what catches bugs; placing orders is a
 # separate decision, so it takes a deliberate environment variable.
+#
+# The Claude proofreader runs with it and prints what it makes of the planned
+# order. It never blocks and never changes the exit code, so REVIEW=off is a
+# way to stop paying for it rather than a safety control.
 if [ -n "${BROKER_SYMBOL:-}" ]; then
   echo
-  if [ "${TRADE:-dry}" = "execute" ]; then
-    "$PYTHON" research/trade.py --symbol "$BROKER_SYMBOL" --execute
-  else
-    "$PYTHON" research/trade.py --symbol "$BROKER_SYMBOL"
-  fi
+  ARGS=(--symbol "$BROKER_SYMBOL")
+  [ "${TRADE:-dry}" = "execute" ] && ARGS+=(--execute)
+  [ "${REVIEW:-on}" = "off" ] && ARGS+=(--no-review)
+  "$PYTHON" research/trade.py "${ARGS[@]}"
 fi

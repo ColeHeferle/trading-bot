@@ -340,13 +340,70 @@ Three things refuse to trade rather than guessing:
   behind, and acting on a price that may be days old is worse than doing nothing;
 - a **position that disagrees** with `paper/live_position.json` halts everything,
   because trading on top of a divergence compounds it;
-- an order over the **risk limits** is rejected before it is sent.
+- an order over the **risk limits** is rejected before it is sent, and it is
+  now priced before that check rather than after. `submit` used to pass `None`
+  for the price, so `max_order_notional` had nothing to multiply by and never
+  fired — leaving only a 10,000-share ceiling, which on a five-figure account
+  is no ceiling at all. The planner already knows the price it sized against,
+  so the plan carries it to the check; an order that cannot be priced is
+  refused rather than sent unchecked.
+
+**Check `max_order_notional` before your first execute.** It defaults to
+25,000, which was harmless while the check could not fire and is not harmless
+now. An Alpaca paper account opens with 100,000, so a fully invested entry is
+a 100,000 order and this ceiling would refuse it. That is the limit working,
+not a bug — but it is your number to set, and the fully-invested case is the
+one to size it against. `research/trade.py` prints the notional against the
+ceiling on every dry run so the headroom is visible long before execute day.
 
 Buys round *down* to whole shares so a sizing error undershoots. Exits sell the
 entire position and are never banded: flat means flat.
 
 One gap no code closes: the rule decides at a close, and a market order fills at
 the next available price. That slippage is in no backtest number here.
+
+## Proofreading an order
+
+`research/review.py` shows the planned order to Claude and prints what it says.
+It runs on every invocation of `research/trade.py`, dry run included, for the
+same reason the trade loop itself runs daily: exercising the path is what
+catches bugs.
+
+**It can raise an objection. It can never clear one.** No exit code comes from
+it, no branch depends on it, and every deterministic refusal still decides on
+its own whether an order gets built. A language model in the *approving*
+position would be a way to talk yourself into a trade the rule never asked for,
+which is the failure most of this README exists to guard against. In the
+objecting position the worst it can do is make you look twice.
+
+**It is not asked whether the trade is a good one, because that question has no
+answer here.** This rule's edge is undetectable — an information ratio of 0.046
+needs about 1,900 years to separate from luck, and the freeze was for the
+drawdown rather than the return. A model asked to opine on a trade will produce
+a fluent opinion about noise every time. So the system prompt forbids market
+views, forbids predicting the outcome, and forbids suggesting the rule be
+retuned; what it asks for is whether the order matches the rule that was
+frozen, and whether the arithmetic ties out.
+
+```
+BROKER_SYMBOL=QQQ research/daily.sh          # proofread with the daily dry run
+python research/trade.py --symbol QQQ --no-review    # skip it
+```
+
+It needs `pip install -e ".[review]"` and an `ANTHROPIC_API_KEY`. Without
+either it prints one line saying so and the loop continues unchanged — every
+failure path ends in a printed line, including the ones nobody anticipated,
+because a proofreader that can take the trading loop down is worse than no
+proofreader. A run that could not be reviewed says so rather than going quiet,
+since silence next to an order reads as approval within about a week.
+
+What it is expected to catch is operational wrongness, not lost money: an order
+that contradicts the frozen rule, sizing that does not tie out, the wrong
+instrument, a target weight the named sizer cannot explain, a trade count out
+of character for a rule that trades under seven times a year. Raising nothing
+is the correct answer most days, and the prompt says so — a flag it cannot
+justify with a specific number is noise, and noise teaches you to stop reading
+it.
 
 ## Getting started
 

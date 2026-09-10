@@ -36,6 +36,10 @@ class Intent:
     side: Side | None
     quantity: float
     reason: str
+    # The price this plan was sized at, carried so the notional risk limit can
+    # be checked against the same number the arithmetic used. Without it the
+    # ceiling has nothing to multiply by and silently never binds.
+    price: float = 0.0
 
     @property
     def is_action(self) -> bool:
@@ -107,16 +111,17 @@ def plan_order(
             "the account cannot borrow"
         )
     if price <= 0 or equity <= 0:
-        return Intent(symbol, None, 0.0, "no price or no equity")
+        return Intent(symbol, None, 0.0, "no price or no equity", price)
 
     current_weight = current_quantity * price / equity
 
     if target_weight <= 0:
         if current_quantity <= 0:
-            return Intent(symbol, None, 0.0, "already flat")
+            return Intent(symbol, None, 0.0, "already flat", price)
         # Exits are never banded: flat means flat.
         return Intent(
-            symbol, Side.SELL, current_quantity, "rule is flat, closing position"
+            symbol, Side.SELL, current_quantity,
+            "rule is flat, closing position", price,
         )
 
     if abs(target_weight - current_weight) < threshold:
@@ -126,6 +131,7 @@ def plan_order(
             0.0,
             f"within the {threshold:g} band (weight {current_weight:.2f}, "
             f"target {target_weight:.2f})",
+            price,
         )
 
     target_quantity = equity * target_weight / price
@@ -135,15 +141,15 @@ def plan_order(
         # never overshoots the target weight in either direction.
         delta = math.floor(delta) if delta > 0 else math.ceil(delta)
     if delta == 0:
-        return Intent(symbol, None, 0.0, "less than one whole share to move")
+        return Intent(symbol, None, 0.0, "less than one whole share to move", price)
     if delta > 0:
         return Intent(
             symbol, Side.BUY, float(delta),
-            f"target {target_weight:.2f}, holding {current_weight:.2f}",
+            f"target {target_weight:.2f}, holding {current_weight:.2f}", price,
         )
     return Intent(
         symbol, Side.SELL, float(-delta),
-        f"trimming to {target_weight:.2f} from {current_weight:.2f}",
+        f"trimming to {target_weight:.2f} from {current_weight:.2f}", price,
     )
 
 

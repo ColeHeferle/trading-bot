@@ -43,6 +43,28 @@ class StubBroker:
         return BrokerPosition(symbol, 0.0, 0.0)
 
 
+class TestPricedPlan:
+    """The plan carries the price it was sized at.
+
+    Not decoration: the notional risk ceiling is checked against this number,
+    and for a while it was checked against None instead — which meant the only
+    limit that could bind on a small account never fired at all.
+    """
+
+    def test_an_action_carries_the_price_it_was_sized_at(self):
+        assert plan_order("SPY", 1.0, 640.0, 10_000.0, 0.0).price == 640.0
+
+    def test_an_exit_carries_it_too(self):
+        assert plan_order("SPY", 0.0, 640.0, 10_000.0, 5.0).price == 640.0
+
+    def test_the_price_is_the_traded_instruments_not_the_rules(self):
+        # A rule watching an index near 6,400 sized against an ETF near 640 is
+        # a tenfold error, so the plan records which number it actually used.
+        broker = StubBroker(price=640.0)
+        intent = plan(broker, "SPY", 1.0, NOW - timedelta(days=1), NOW)
+        assert intent.price == 640.0
+
+
 class TestEntry:
     def test_buys_to_the_target_when_flat(self):
         intent = plan_order("SPY", True, 640.0, 10_000.0, 0.0)

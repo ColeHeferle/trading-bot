@@ -14,6 +14,9 @@ dependencies = []
 dev = ["pytest>=8.0"]
 # Only research/ needs these; the package itself stays dependency-free.
 research = ["arch>=6.0"]
+# The order proofreader. Optional on purpose: nothing in the trading path
+# depends on it, and without it the loop behaves exactly as it did before.
+review = ["anthropic>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

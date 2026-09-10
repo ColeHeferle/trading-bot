@@ -172,7 +172,12 @@ class Broker(ABC):
 
     @abstractmethod
     def submit(
-        self, symbol: str, side: Side, quantity: float, order_id: str
+        self,
+        symbol: str,
+        side: Side,
+        quantity: float,
+        order_id: str,
+        price: float | None = None,
     ) -> BrokerOrder: ...
 
     @abstractmethod
@@ -247,14 +252,29 @@ class AlpacaBroker(Broker):
         ]
 
     def submit(
-        self, symbol: str, side: Side, quantity: float, order_id: str
+        self,
+        symbol: str,
+        side: Side,
+        quantity: float,
+        order_id: str,
+        price: float | None = None,
     ) -> BrokerOrder:
         """Place a market order, or return the one this id already placed.
 
         The duplicate case is not an error: it means a previous attempt got
         further than we recorded, and re-sending would double the position.
+
+        `price` is what the caller sized the order at, and it is what the
+        notional ceiling is checked against. Passing None looks it up rather
+        than skipping the check: a share-count ceiling alone cannot catch a
+        sizing error, because the same 16 shares is a rounding error in one
+        instrument and the whole account in another. If the price cannot be
+        fetched the order is refused, which is the same answer every other
+        unanswerable question gets here.
         """
-        self.limits.check(symbol, quantity, None)
+        if price is None:
+            price = self.latest_price(symbol)
+        self.limits.check(symbol, quantity, price)
         body = {
             "symbol": symbol,
             "qty": str(quantity),

@@ -39,6 +39,9 @@ class FakeTransport:
 
 ACCOUNT = {"cash": "10000.5", "equity": "12000.25", "buying_power": "20000", "currency": "USD"}
 POSITIONS = [{"symbol": "SPY", "qty": "12", "avg_entry_price": "640.5"}]
+# `submit` prices every order so the notional ceiling has something to
+# multiply by, so this route is stubbed for every broker built here.
+PRICE = {("GET", "/v2/stocks/SPY/trades/latest"): {"trade": {"p": "640.0"}}}
 
 
 def order_payload(**kw):
@@ -57,8 +60,12 @@ def order_payload(**kw):
 
 
 def broker(responses=None, **kw):
-    transport = FakeTransport(responses)
+    transport = FakeTransport({**PRICE, **(responses or {})})
     return AlpacaBroker("key", "secret", transport=transport, **kw), transport
+
+
+def posts(transport):
+    return [call for call in transport.calls if call[0] == "POST"]
 
 
 class TestEndpointGuard:
@@ -116,7 +123,7 @@ class TestSubmit:
         api, transport = broker({("POST", "/v2/orders"): order_payload()})
         api.submit("SPY", Side.BUY, 12, "tb-deadbeef")
 
-        _, path, body = transport.calls[0]
+        _, path, body = posts(transport)[0]
         assert path == "/v2/orders"
         assert body == {
             "symbol": "SPY",
@@ -158,7 +165,7 @@ class TestSubmit:
         placed = api.submit("SPY", Side.BUY, 12, "tb-dup")
 
         assert placed.is_filled
-        assert sum(1 for m, p, _ in transport.calls if m == "POST") == 1
+        assert len(posts(transport)) == 1
 
     def test_a_422_with_no_recoverable_order_still_raises(self):
         api, _ = broker({
@@ -230,7 +237,38 @@ class TestRiskLimits:
         api, transport = broker(limits=RiskLimits(max_order_quantity=5))
         with pytest.raises(RiskLimitExceeded):
             api.submit("SPY", Side.BUY, 50, "x")
-        assert transport.calls == []
+        assert posts(transport) == []
+
+    def test_the_notional_ceiling_binds_on_a_real_submit(self):
+        # This is the check that matters: a share count alone cannot tell a
+        # rounding error from the whole account, because the same 16 shares is
+        # either one depending on the instrument. It was dead for a while —
+        # `submit` passed None for the price, so the ceiling had nothing to
+        # multiply by and never fired on any order this account could place.
+        api, transport = broker(limits=RiskLimits(max_order_notional=1_000))
+        with pytest.raises(RiskLimitExceeded, match="max_order_notional"):
+            api.submit("SPY", Side.BUY, 12, "x")  # 12 x 640 = 7,680
+        assert posts(transport) == []
+
+    def test_a_supplied_price_is_used_instead_of_a_second_lookup(self):
+        # The planner already priced this order; re-fetching invites a
+        # different number than the arithmetic actually used.
+        api, transport = broker(
+            {("POST", "/v2/orders"): order_payload()},
+            limits=RiskLimits(max_order_notional=1_000),
+        )
+        with pytest.raises(RiskLimitExceeded, match="max_order_notional"):
+            api.submit("SPY", Side.BUY, 12, "x", price=500.0)
+        assert transport.calls == []  # no price read, no order
+
+    def test_an_unpriceable_order_is_refused_rather_than_sent_unchecked(self):
+        api, transport = broker({
+            ("GET", "/v2/stocks/SPY/trades/latest"): BrokerError("500: no data"),
+            ("POST", "/v2/orders"): order_payload(),
+        })
+        with pytest.raises(BrokerError):
+            api.submit("SPY", Side.BUY, 12, "x")
+        assert posts(transport) == []
 
 
 class StubBroker:
