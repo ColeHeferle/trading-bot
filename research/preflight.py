@@ -63,6 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         help="launch flat even though no crossing was witnessed",
     )
     parser.add_argument("--max-bar-age-days", type=int, default=4)
+    parser.add_argument(
+        "--min-crossings",
+        type=int,
+        default=5,
+        help="how many crossings the window needs before the last one is "
+             "worth trusting (0 disables the check)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -167,6 +174,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {signal.name:<5} {candle.timestamp.date()} "
               f"at {candle.close:,.2f}")
 
+    # Clearing the minimum bar count is not the same as having enough history.
+    # A window holding two or three crossings can put the rule long or flat
+    # depending on nothing but where the backfill happens to start, and the
+    # bar-count check misses that entirely: it only asks whether the slow
+    # average can be computed at all.
+    #
+    # The crossing count is the honest measure, because it says directly how
+    # much evidence stands behind the position being opened. This is a "your
+    # call" rather than a refusal — a thin window is a reason to fetch more
+    # history, not proof that the rule is wrong.
+    if args.min_crossings > 0 and events and len(events) < args.min_crossings:
+        span_days = (bars[-1].timestamp - bars[0].timestamp).days
+        waivable.append(
+            f"only {len(events)} crossing{'s' if len(events) != 1 else ''} in "
+            f"{len(bars)} bars ({span_days} days), and the last one is what "
+            f"opens the position. A backfill starting a little earlier could "
+            f"end on the other signal and open the opposite way, so this says "
+            f"as much about the download as about the rule. Fetch deeper "
+            f"history — at {rule.strategy}'s usual rate you want several "
+            f"years — or pass --min-crossings 0 to accept the thin window."
+        )
+
     # The dangerous case: flat purely because the window contains no transition.
     if opening is None:
         pair = averages(rule, warmup if boundary is not None else bars)
@@ -176,7 +205,10 @@ def main(argv: list[str] | None = None) -> int:
             gap = (fast_avg / slow_avg - 1) * 100
             print(f"\naverages      fast {fast_avg:,.2f} vs slow {slow_avg:,.2f}"
                   f"  ({gap:+.2f}%)")
-            if above:
+            if above and args.accept_flat_start:
+                print("\n--accept-flat-start given: launching flat through "
+                      "this trend is your call.")
+            elif above:
                 waivable.append(
                     "the fast average is ALREADY ABOVE the slow one, but the "
                     "rule never saw them cross, so it will hold nothing "
@@ -199,12 +231,10 @@ def main(argv: list[str] | None = None) -> int:
         for i, item in enumerate(items, 1):
             print(f"  {i}. {item}", file=stream)
 
-    if problems:
+    # Anything still listed is uncleared: each item is only appended when its
+    # own flag has not been given, so there is no second chance to waive here.
+    if problems or waivable:
         return 1
-    if waivable:
-        if not args.accept_flat_start:
-            return 1
-        print("\n--accept-flat-start given; launching flat is your call.")
 
     print("\nready to launch. Sizing happens against live broker equity and "
           "price,\nnot the closes above.")

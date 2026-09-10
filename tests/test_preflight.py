@@ -9,6 +9,8 @@ flatness, so these tests pin the distinction rather than the wording.
 from __future__ import annotations
 
 import importlib.util
+import math
+import random
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -73,6 +75,15 @@ def make_rule(tmp_path: Path, warmup_until: str | None = None) -> Path:
 
 
 def run(state: Path, bars: Path, *extra: str) -> int:
+    """Run preflight with the crossing-count check off by default.
+
+    Most tests here are about the long/flat distinction, and the synthetic
+    single-regime fixtures they use are deliberately thin. Passing
+    --min-crossings 0 keeps them testing one thing; TestThinWindow covers the
+    check itself.
+    """
+    if not any(a.startswith("--min-crossings") for a in extra):
+        extra = ("--min-crossings", "0", *extra)
     return preflight.main([str(state), str(bars), *extra])
 
 
@@ -227,3 +238,71 @@ def test_runs_without_a_future_boundary(tmp_path, boundary):
     state = tmp_path / "r.json"
     PaperRun(rule).save(state)
     assert run(state, bars) in (0, 1)
+
+
+class TestThinWindow(TestTellsTheTwoFlatsApart):
+    """Clearing the minimum bar count is not the same as having enough history.
+
+    This exists because the bar-count check under-warned on real data: 128 QQQ
+    bars cleared the 50-bar minimum and passed, while holding only three
+    crossings. The last of those three is what opens the position, so a
+    backfill starting slightly earlier could have ended on the other signal
+    and opened the opposite way. That is a fact about the download, not the
+    rule.
+    """
+
+    def test_a_window_with_few_crossings_is_flagged(self, tmp_path, capsys):
+        rows = series(560, lambda i: 0.9985 if i < 280 else 1.0035)
+        bars = write_csv(tmp_path / "thin.csv", rows)
+        code = preflight.main([str(make_rule(tmp_path)), str(bars)])
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "crossing" in out and "opens the position" in out
+
+    def test_the_same_window_passes_once_the_check_is_waived(self, tmp_path):
+        rows = series(560, lambda i: 0.9985 if i < 280 else 1.0035)
+        bars = write_csv(tmp_path / "thin.csv", rows)
+        assert preflight.main(
+            [str(make_rule(tmp_path)), str(bars), "--min-crossings", "0"]
+        ) == 0
+
+    def test_a_rich_window_is_not_flagged(self, tmp_path, capsys):
+        """A market that actually cycles produces plenty of crossings.
+
+        A random walk will not do: over 900 bars a 50/200 crossover finds only
+        about three, which is the thin case rather than the rich one. This
+        oscillates on a period long enough for the slow average to follow it,
+        giving thirteen.
+        """
+        rng = random.Random(77)
+        rows = series(
+            1400,
+            lambda i: 1 + 0.010 * math.sin(2 * math.pi * i / 180)
+            + rng.gauss(0, 0.004),
+        )
+        bars = write_csv(tmp_path / "rich.csv", rows)
+        code = preflight.main(
+            [str(make_rule(tmp_path)), str(bars), "--min-crossings", "5"]
+        )
+        out = capsys.readouterr().out
+        assert "opens the position" not in out, out
+        assert code == 0
+
+    def test_the_threshold_is_adjustable(self, tmp_path, capsys):
+        rows = series(560, lambda i: 0.9985 if i < 280 else 1.0035)
+        bars = write_csv(tmp_path / "thin.csv", rows)
+        assert preflight.main(
+            [str(make_rule(tmp_path)), str(bars), "--min-crossings", "1"]
+        ) == 0
+
+    def test_accept_flat_start_does_not_waive_the_crossing_warning(
+        self, tmp_path, capsys
+    ):
+        """One flag must not silently clear an unrelated warning."""
+        rows = series(560, lambda i: 0.9985 if i < 280 else 1.0035)
+        bars = write_csv(tmp_path / "thin.csv", rows)
+        code = preflight.main(
+            [str(make_rule(tmp_path)), str(bars), "--accept-flat-start"]
+        )
+        assert code == 1, "the crossing warning is not what that flag waives"
+        assert "opens the position" in capsys.readouterr().out
