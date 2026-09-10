@@ -11,8 +11,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PYTHON="${PYTHON:-.venv/bin/python}"
-STATE="${STATE:-paper/spy_sma_50_200.json}"
-BARS="${BARS:-paper/spy_bars.csv}"
+STATE="${STATE:-paper/qqq_sma_10_50_vol25.json}"
+BARS="${BARS:-paper/qqq_bars.csv}"
 
 "$PYTHON" research/fetch_bars.py --out "$BARS" "$@"
 "$PYTHON" research/paper_trade.py "$STATE" "$BARS"

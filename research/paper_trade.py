@@ -1,6 +1,6 @@
 """Advance a frozen paper run with any new bars, then report.
 
-    python research/paper_trade.py paper/spy_sma_50_200.json bars.csv
+    python research/paper_trade.py paper/qqq_sma_10_50_vol25.json bars.csv
 
 `bars.csv` needs a header and one row per bar, oldest first:
 
