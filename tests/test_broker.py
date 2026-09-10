@@ -233,6 +233,16 @@ class TestRiskLimits:
         with pytest.raises(RiskLimitExceeded, match="max_order_notional"):
             RiskLimits(max_order_notional=1000).check("SPY", 10, 640.0)
 
+    def test_the_default_admits_a_full_size_entry_but_not_a_tenfold_error(self):
+        # The two cases the notional default is chosen between, pinned as
+        # behaviour rather than as a number: a paper account fully invested in
+        # the ETF must go through, and the same account sized off the index
+        # level it was watching — 6,400 where 640 belonged — must not.
+        equity = 100_000.0
+        RiskLimits().check("QQQ", equity // 640.0, 640.0)
+        with pytest.raises(RiskLimitExceeded, match="max_order_notional"):
+            RiskLimits().check("QQQ", equity // 640.0, 6_400.0)
+
     def test_the_limit_blocks_the_order_before_it_is_sent(self):
         api, transport = broker(limits=RiskLimits(max_order_quantity=5))
         with pytest.raises(RiskLimitExceeded):

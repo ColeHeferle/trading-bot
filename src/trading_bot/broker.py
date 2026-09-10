@@ -89,9 +89,16 @@ class RiskLimits:
 
     A rule that has never traded live is exactly when a sizing bug is most
     likely, so the cap is a hard stop rather than a warning.
+
+    The notional default clears a standard Alpaca paper account fully invested
+    and not much more, which is the shape of cap that catches the bug it is
+    aimed at: a tenfold sizing error — an index level used where an ETF price
+    belonged — lands far above it, while a legitimate full-size entry lands
+    just under. Grow the account past this and a full-size entry meets the
+    ceiling, so raise it then, deliberately.
     """
 
-    max_order_notional: float = 25_000.0
+    max_order_notional: float = 100_000.0
     max_order_quantity: float = 10_000.0
 
     def check(self, symbol: str, quantity: float, price: float | None) -> None:

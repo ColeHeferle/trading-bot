@@ -348,13 +348,14 @@ Three things refuse to trade rather than guessing:
   so the plan carries it to the check; an order that cannot be priced is
   refused rather than sent unchecked.
 
-**Check `max_order_notional` before your first execute.** It defaults to
-25,000, which was harmless while the check could not fire and is not harmless
-now. An Alpaca paper account opens with 100,000, so a fully invested entry is
-a 100,000 order and this ceiling would refuse it. That is the limit working,
-not a bug — but it is your number to set, and the fully-invested case is the
-one to size it against. `research/trade.py` prints the notional against the
-ceiling on every dry run so the headroom is visible long before execute day.
+**`max_order_notional` defaults to 100,000**, which clears an Alpaca paper
+account fully invested and not much more. That is the shape of cap worth
+having: a tenfold sizing error — an index level near 6,400 used where an ETF
+price near 640 belonged — lands far above it, while a legitimate full-size
+entry lands just under. Grow the account past 100,000 and a full-size entry
+will meet the ceiling; raise it then, deliberately. `research/trade.py` prints
+the notional against the ceiling on every dry run, so the headroom is visible
+long before the day it would refuse something.
 
 Buys round *down* to whole shares so a sizing error undershoots. Exits sell the
 entire position and are never banded: flat means flat.
