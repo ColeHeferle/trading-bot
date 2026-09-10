@@ -1,0 +1,23 @@
+{
+  "rule": {
+    "strategy": "SmaCrossover",
+    "params": {
+      "fast_period": 10,
+      "slow_period": 50
+    },
+    "symbol": "QQQ",
+    "initial_cash": 10000.0,
+    "fee_rate": 0.0005,
+    "note": "Frozen 2026-09-10 on QQQ with SmaCrossover(10, 50) sized by a 25% volatility target. Supersedes the SPY SmaCrossover(50, 200) freeze (c1d59cfb0ec55f5d), which was re-registered while that run also held zero bars. THIS IS THE SECOND AND LAST RE-FREEZE. Re-freezing whenever a better backtest appears is the overfitting loop spread over weeks, and it is only free at all because no forward data exists yet. Once bars are recorded, this rule is locked whatever a later backtest says. Chosen for the DRAWDOWN, not the return. On Nasdaq daily bars 1999-2018 at 5bps a side this configuration returned 5.66% against buy-and-hold's 5.66% with a maximum drawdown of 30.3% against 77.9%, at 6.6 trades a year, holding to 0.47 Sharpe at 20bps. The Sharpe improvement DOES NOT survive deflation: charged against every rule tried on the S&P and Nasdaq in the same sitting it reads p = 0.392. What is worth trusting is the drawdown reduction, because it does not rest on the backtest at all \u2014 holding target_vol / realized_vol of equity shrinks the position as volatility rises, by construction. Backfill history freely: bars before 2026-09-11 fill the averages and the volatility window but stay out of the record. Backfill generously \u2014 SmaCrossover signals on the crossing, so a window with no transition in it opens flat; run research/preflight.py before launching.",
+    "warmup_until": "2026-09-11",
+    "sizer": "VolatilityTarget",
+    "sizer_params": {
+      "target_volatility": 0.25,
+      "lookback": 20,
+      "max_leverage": 1.0,
+      "periods_per_year": 252
+    }
+  },
+  "fingerprint": "607d3ec444f322bb",
+  "bars": []
+}

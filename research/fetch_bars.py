@@ -1,7 +1,7 @@
 """Fetch daily bars and merge them into a CSV, safe to run on a schedule.
 
-    python research/fetch_bars.py --out paper/spy_bars.csv
-    python research/fetch_bars.py --out paper/spy_bars.csv --source yfinance
+    python research/fetch_bars.py --out paper/qqq_bars.csv
+    python research/fetch_bars.py --out paper/qqq_bars.csv --source yfinance
 
 Idempotent: re-running adds nothing. Dates already in the file are never
 overwritten — if the vendor now reports different values for a day already
@@ -31,7 +31,7 @@ from trading_bot.feed import format_csv, merge, parse_csv, parse_stooq
 from trading_bot.models import Candle
 
 STOOQ_URL = "https://stooq.com/q/d/l/?s={symbol}&i=d"
-DEFAULTS = {"stooq": "spy.us", "yfinance": "SPY"}
+DEFAULTS = {"stooq": "qqq.us", "yfinance": "QQQ"}
 
 
 def from_stooq(symbol: str, timeout: int) -> list[Candle]:

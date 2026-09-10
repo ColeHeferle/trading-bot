@@ -1,7 +1,7 @@
 """Act on the frozen rule's current decision. Dry run unless told otherwise.
 
-    python research/trade.py --symbol SPY                # report only
-    python research/trade.py --symbol SPY --execute      # actually place it
+    python research/trade.py --symbol QQQ                # report only
+    python research/trade.py --symbol QQQ --execute      # actually place it
 
 Default is a dry run. Wiring order placement into a schedule should not also
 be the moment it starts placing orders, so the loop exercises the whole path —
@@ -61,7 +61,7 @@ def save_expected(path: Path, symbol: str, quantity: float, order_id: str) -> No
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Act on the frozen rule.")
     parser.add_argument("--symbol", required=True, help="the instrument to trade")
-    parser.add_argument("--state", type=Path, default=Path("paper/spy_sma_50_200.json"))
+    parser.add_argument("--state", type=Path, default=Path("paper/qqq_sma_10_50_vol25.json"))
     parser.add_argument("--live", type=Path, default=Path("paper/live_position.json"))
     parser.add_argument("--execute", action="store_true", help="place the order")
     parser.add_argument("--max-bar-age-days", type=int, default=4)

@@ -25,10 +25,10 @@ from trading_bot import AlpacaBroker, BrokerError, PaperRun, reconcile
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--state", type=Path, default=Path("paper/spy_sma_50_200.json"))
+    parser.add_argument("--state", type=Path, default=Path("paper/qqq_sma_10_50_vol25.json"))
     parser.add_argument(
         "--symbol",
-        default="SPY",
+        default="QQQ",
         help="what the broker actually trades; the rule is frozen on an index",
     )
     args = parser.parse_args(argv)
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     expected = run.journal[-1].quantity if run.journal else 0.0
     print(f"\nreconciling {args.state.name} against the broker")
     if run.rule.symbol != args.symbol:
-        # The rule is frozen on SPY, so this is normally silent. It fires if
+        # The rule is frozen on QQQ, so this is normally silent. It fires if
         # someone points --symbol at something else, which is worth saying out
         # loud: the record would then describe an instrument nobody holds.
         print(

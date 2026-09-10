@@ -1,6 +1,6 @@
 """Say what the bot will do on its first live bar, before it does it.
 
-    python research/preflight.py paper/spy_sma_50_200.json paper/spy_bars.csv
+    python research/preflight.py paper/qqq_sma_10_50_vol25.json paper/qqq_bars.csv
 
 Reads only. Places no orders, contacts no broker, and does not modify the run.
 

@@ -250,12 +250,22 @@ the broker's over the union of both, so a position the broker holds that the run
 knows nothing about — a stray nobody is managing — shows up rather than being
 skipped.
 
-The rule is frozen on `SPY` — the thing actually traded. It named `SPX` until
+The rule is frozen on `QQQ`, running `SmaCrossover(10, 50)` sized by a 25%
+volatility target — fingerprint `607d3ec444f322bb`. It named `SPX` until
 2026-09-08, which was a mistake worth naming: an index cannot be bought, so the
-record and the position described different instruments with different prices
-and different dividend treatment. That was corrected while the run held zero
-bars; after months of forward data the correction would have cost the whole
-record. Acting on the rule is the next section.
+record and the position described different instruments. It then named `SPY`
+until 2026-09-10, when it moved to the configuration measured as the best in
+this repo.
+
+**That is two re-freezes, and it should be the last.** Both were free only
+because the run held zero bars each time. Re-freezing whenever a better
+backtest appears is the overfitting loop spread over weeks; once bars are
+recorded the rule is locked, whatever a later backtest says.
+
+It is frozen for the **drawdown**, not the return: 30.3% against buy-and-hold's
+77.9% for the same 5.66% CAGR. The Sharpe improvement does not survive
+deflation (p = 0.39) and is not the reason. Acting on the rule is the next
+section.
 
 ## Before the first launch
 
@@ -264,7 +274,7 @@ it does it. It reads only — no broker, no orders, and it does not advance the
 run:
 
 ```bash
-python research/preflight.py paper/spy_sma_50_200.json paper/spy_bars.csv
+python research/preflight.py paper/qqq_sma_10_50_vol25.json paper/qqq_bars.csv
 ```
 
 It answers one question that is otherwise unanswerable until a month of
@@ -298,8 +308,8 @@ broker position to match. **It is a dry run unless `--execute` is passed**, and
 `daily.sh` runs it in that mode every day when `BROKER_SYMBOL` is set:
 
 ```bash
-BROKER_SYMBOL=SPY research/daily.sh              # fetch, advance, report
-BROKER_SYMBOL=SPY TRADE=execute research/daily.sh  # …and place the order
+BROKER_SYMBOL=QQQ research/daily.sh              # fetch, advance, report
+BROKER_SYMBOL=QQQ TRADE=execute research/daily.sh  # …and place the order
 ```
 
 Exercising the whole path daily is what catches bugs; placing orders is a
