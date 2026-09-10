@@ -299,6 +299,18 @@ deliberately. It also blocks on too little history, a warmup boundary with too
 few bars behind it, a stale file, and bars dated in the future — which no feed
 legitimately produces, and which usually means a timezone bug.
 
+**A window that clears the minimum bar count can still be too thin.** Having
+enough bars to compute the slow average is not the same as having enough
+history for the last crossing to mean anything: a window holding two or three
+of them opens long or flat depending on nothing but where the download happens
+to start. `--min-crossings` (default 5) flags that, and it is the crossing
+count rather than the bar count because that is what measures the evidence
+behind the position. Fetch deeper history, or pass `--min-crossings 0` to
+accept the thin window.
+
+This was added because the bar-count check under-warned on real data: 128 QQQ
+bars cleared the 50-bar minimum, passed, and held three crossings.
+
 Exit 0 means ready. Run it again after any change to the backfill.
 
 ## Acting on the rule
