@@ -234,6 +234,10 @@ export APCA_API_KEY_ID=...  APCA_API_SECRET_KEY=...
 python research/broker_check.py
 ```
 
+[`docs/alpaca-setup.md`](docs/alpaca-setup.md) is the runbook for getting from
+a fresh account to a placed order: generating paper keys, where to put them,
+what correct output looks like at each stage, and what each failure means.
+
 **It refuses the live endpoint unless you pass `allow_live=True`.** Paper is not
 just the default: a live URL without that flag raises, so a copied config or a
 stray environment variable cannot quietly move real money.

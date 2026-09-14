@@ -9,3 +9,4 @@ dist/
 .coverage
 htmlcov/
 research/.data_cache/
+.env

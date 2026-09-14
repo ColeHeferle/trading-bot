@@ -9,8 +9,8 @@ Alpaca's v2 API rather than against the live service, because the environment
 this was built in cannot reach it. Run `research/broker_check.py` first: it is
 read-only and will surface any mismatch before an order is ever placed.
 
-Nothing here is wired into the daily loop. This adapter can place an order when
-asked; it is not yet asked by anything.
+`research/trade.py` is what asks this adapter to act, and `research/daily.sh`
+runs it every day in dry-run mode; placing an order takes `--execute`.
 """
 
 from __future__ import annotations
