@@ -1,0 +1,107 @@
+name: Daily
+
+# Runs the paper loop on GitHub's machines rather than yours: fetch the day's
+# bar, advance the frozen run, commit both back, and report what the broker
+# leg would do.
+#
+# It NEVER places an order. The broker step is a dry run with no way to pass
+# --execute, because a schedule nobody is watching is the wrong place to
+# decide to trade. Wiring execution in is a separate, deliberate change.
+#
+# The first run is also the experiment: data vendors often refuse cloud IP
+# ranges, and whether Stooq answers a GitHub runner cannot be known from
+# anywhere else. If it refuses, re-run from the Actions tab with source set to
+# yfinance.
+
+on:
+  schedule:
+    # 22:00 UTC on weekdays — comfortably after the 16:00 ET close in either
+    # daylight or standard time. GitHub runs scheduled jobs late when it is
+    # busy, sometimes by tens of minutes; harmless for a rule that acts on
+    # closes.
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Data source"
+        type: choice
+        options: [stooq, yfinance]
+        default: stooq
+
+# Two runs committing to main at once would race. Queue instead, and never
+# cancel one partway: a fetch that is killed after writing the CSV but before
+# advancing the run leaves the two files disagreeing.
+concurrency:
+  group: daily
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  STATE: paper/qqq_sma_10_50_vol25.json
+  BARS: paper/qqq_bars.csv
+  SYMBOL: QQQ
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      # `secrets` is not readable from a step's `if:`, so fold it down to a
+      # plain string here. This is the whole reason the broker step can be
+      # skipped rather than failing on empty credentials.
+      HAS_KEYS: ${{ secrets.APCA_API_KEY_ID != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          if [ "${{ inputs.source || 'stooq' }}" = "yfinance" ]; then
+            pip install yfinance
+          fi
+
+      - name: Fetch the day's bar
+        run: |
+          bash .github/report.sh '## Fetch' python research/fetch_bars.py \
+            --out "$BARS" --source "${{ inputs.source || 'stooq' }}"
+
+      - name: Advance the paper run
+        run: bash .github/report.sh '## Paper run' python research/paper_trade.py "$STATE" "$BARS"
+
+      - name: Commit the day's data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$BARS" "$STATE"
+          if git diff --cached --quiet; then
+            echo "nothing changed — a holiday, or the bar was already recorded"
+            exit 0
+          fi
+          git commit -m "Record $(date -u +%Y-%m-%d) bar and advance the run"
+          # Pushes made with GITHUB_TOKEN do not trigger workflows, so this
+          # cannot set itself off again. Rebase first anyway: a human commit
+          # landing mid-run would otherwise reject the push.
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: What the rule opens with
+        # Exits 1 on anything it wants a human to look at, which is a report
+        # here rather than a failure — the run already happened.
+        continue-on-error: true
+        run: bash .github/report.sh '## Preflight' python research/preflight.py "$STATE" "$BARS"
+
+      - name: What the broker leg would do
+        # Skipped entirely until the paper keys exist as repository secrets.
+        # Dry run: there is no --execute here, by design.
+        if: ${{ env.HAS_KEYS == 'true' }}
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: bash .github/report.sh '## Broker (dry run)' python research/trade.py --symbol "$SYMBOL"
