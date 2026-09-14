@@ -356,6 +356,33 @@ entire position and are never banded: flat means flat.
 One gap no code closes: the rule decides at a close, and a market order fills at
 the next available price. That slippage is in no backtest number here.
 
+## Running it without a machine of your own
+
+`.github/workflows/daily.yml` runs the whole loop on GitHub's runners: fetch
+the day's bar, advance the frozen run, commit both back to `main`, and report
+what the broker leg would do. Weekdays at 22:00 UTC, after the US close.
+
+**It never places an order.** The broker step is a dry run with no way to pass
+`--execute` — a schedule nobody is watching is the wrong place to decide to
+trade. Wiring execution in is a separate, deliberate change.
+
+Each run writes its output to the workflow summary, so the Actions tab shows
+what happened without opening a log. The broker step is skipped entirely until
+`APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` exist as repository secrets.
+
+Two things to know before relying on it:
+
+- **The vendor may refuse.** Data providers often block cloud IP ranges, and
+  whether Stooq answers a GitHub runner cannot be established from anywhere
+  else — the first run is the experiment. If it refuses, run the workflow by
+  hand from the Actions tab with **source** set to `yfinance`.
+- **It pushes to `main`.** Branch protection requiring pull requests will
+  reject that, and the fix is an exception for the Actions bot rather than a
+  change to the workflow.
+
+Commits it makes are authored by `github-actions[bot]` and do not re-trigger
+CI, so there is no loop to worry about.
+
 ## Getting started
 
 ```bash
