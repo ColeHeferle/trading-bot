@@ -56,7 +56,16 @@ def order_payload(**kw):
     return base
 
 
+# `submit` prices every order to enforce the notional ceiling, so the price
+# endpoint is part of the default fake rather than something each test repeats.
+# 12 SPY at this price is well under the default ceiling.
+PRICE_PATH = "/v2/stocks/SPY/trades/latest"
+PRICE_RESPONSE = {"symbol": "SPY", "trade": {"p": 641.23, "s": 100}}
+
+
 def broker(responses=None, **kw):
+    responses = dict(responses or {})
+    responses.setdefault(("GET", PRICE_PATH), PRICE_RESPONSE)
     transport = FakeTransport(responses)
     return AlpacaBroker("key", "secret", transport=transport, **kw), transport
 
@@ -116,7 +125,9 @@ class TestSubmit:
         api, transport = broker({("POST", "/v2/orders"): order_payload()})
         api.submit("SPY", Side.BUY, 12, "tb-deadbeef")
 
-        _, path, body = transport.calls[0]
+        # A price lookup precedes the order now, so find the POST rather than
+        # assuming it is first.
+        _, path, body = next(c for c in transport.calls if c[0] == "POST")
         assert path == "/v2/orders"
         assert body == {
             "symbol": "SPY",
@@ -230,7 +241,87 @@ class TestRiskLimits:
         api, transport = broker(limits=RiskLimits(max_order_quantity=5))
         with pytest.raises(RiskLimitExceeded):
             api.submit("SPY", Side.BUY, 50, "x")
-        assert transport.calls == []
+        # Pricing the order is allowed; sending it is not.
+        assert [c for c in transport.calls if c[0] == "POST"] == []
+
+
+class TestTheNotionalCeilingReachesTheOrderPath:
+    """The dollar ceiling has to bind where orders are actually placed.
+
+    It did not. `submit` called `limits.check(symbol, quantity, None)`, and the
+    notional test inside `check` is guarded by `price is not None`, so it never
+    ran. Only the share count applied: a fully invested QQQ order — about four
+    times the $25,000 default — was sent. `TestRiskLimits` passed throughout,
+    because it calls `check` directly with a price the order path never
+    supplied.
+
+    So these tests go through `submit`. A unit test of `check` cannot tell the
+    difference between this working and this being unreachable.
+    """
+
+    def test_an_order_over_the_ceiling_is_refused(self):
+        api, transport = broker(
+            {("POST", "/v2/orders"): order_payload()},
+            limits=RiskLimits(max_order_notional=5_000),
+        )
+        # 12 x 641.23 = 7,694.76, over the ceiling but only 12 shares.
+        with pytest.raises(RiskLimitExceeded, match="max_order_notional"):
+            api.submit("SPY", Side.BUY, 12, "tb-big")
+        assert [c for c in transport.calls if c[0] == "POST"] == []
+
+    def test_an_order_under_the_ceiling_still_goes(self):
+        api, transport = broker(
+            {("POST", "/v2/orders"): order_payload()},
+            limits=RiskLimits(max_order_notional=50_000),
+        )
+        api.submit("SPY", Side.BUY, 12, "tb-ok")
+        assert [c for c in transport.calls if c[0] == "POST"]
+
+    def test_the_price_is_fetched_rather_than_left_to_the_caller(self):
+        """Omitting the argument must not be a way to skip the ceiling."""
+        api, transport = broker(
+            {("POST", "/v2/orders"): order_payload()},
+            limits=RiskLimits(max_order_notional=5_000),
+        )
+        with pytest.raises(RiskLimitExceeded):
+            api.submit("SPY", Side.BUY, 12, "tb-x")
+        assert any(PRICE_PATH in path for _, path, _ in transport.calls)
+
+    def test_an_explicit_price_overrides_the_lookup(self):
+        api, transport = broker(
+            {("POST", "/v2/orders"): order_payload()},
+            limits=RiskLimits(max_order_notional=5_000),
+        )
+        api.submit("SPY", Side.BUY, 12, "tb-cheap", price=1.0)
+        assert not any(PRICE_PATH in path for _, path, _ in transport.calls)
+        assert [c for c in transport.calls if c[0] == "POST"]
+
+    def test_an_unpriceable_order_is_refused_rather_than_sent_unchecked(self):
+        """Failing open here would put the hole back, only intermittently."""
+        api, transport = broker({
+            ("GET", PRICE_PATH): BrokerError("GET price -> 500: boom"),
+            ("POST", "/v2/orders"): order_payload(),
+        })
+        with pytest.raises(BrokerError, match="500"):
+            api.submit("SPY", Side.BUY, 12, "tb-noprice")
+        assert [c for c in transport.calls if c[0] == "POST"] == []
+
+    def test_a_retry_is_still_recoverable_when_the_price_lookup_fails(self):
+        """Refusing must not cost the duplicate-id protection.
+
+        A retry of an id the broker already holds adds no exposure, so there is
+        nothing for the ceiling to protect against — and the alternative is
+        leaving a placed order unrecorded because a data endpoint was down.
+        """
+        api, transport = broker({
+            ("GET", PRICE_PATH): BrokerError("GET price -> 500: boom"),
+            ("GET", "/v2/orders:by_client_order_id?client_order_id=tb-dup"):
+                order_payload(client_order_id="tb-dup", status="filled",
+                              filled_qty="12", filled_avg_price="640"),
+        })
+        placed = api.submit("SPY", Side.BUY, 12, "tb-dup")
+        assert placed.is_filled
+        assert [c for c in transport.calls if c[0] == "POST"] == []
 
 
 class StubBroker:

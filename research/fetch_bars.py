@@ -9,7 +9,7 @@ recorded, that is printed as a REVISION and the stored bar is kept, because a
 forward test whose past silently changes is not a record of anything. Pass
 `--strict` to exit non-zero on a revision so a cron job surfaces it.
 
-Sources, both fetching the S&P 500 index:
+Sources, both fetching QQQ by default (see DEFAULTS):
     stooq     (default) no dependencies, plain CSV over HTTPS
     yfinance  needs `pip install yfinance`
 

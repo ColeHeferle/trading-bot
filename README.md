@@ -234,6 +234,10 @@ export APCA_API_KEY_ID=...  APCA_API_SECRET_KEY=...
 python research/broker_check.py
 ```
 
+[`docs/alpaca-setup.md`](docs/alpaca-setup.md) is the runbook for getting from
+a fresh account to a placed order: generating paper keys, where to put them,
+what correct output looks like at each stage, and what each failure means.
+
 **It refuses the live endpoint unless you pass `allow_live=True`.** Paper is not
 just the default: a live URL without that flag raises, so a copied config or a
 stray environment variable cannot quietly move real money.
@@ -340,7 +344,11 @@ Three things refuse to trade rather than guessing:
   behind, and acting on a price that may be days old is worse than doing nothing;
 - a **position that disagrees** with `paper/live_position.json` halts everything,
   because trading on top of a divergence compounds it;
-- an order over the **risk limits** is rejected before it is sent.
+- an order over the **risk limits** is rejected before it is sent. The dollar
+  ceiling is priced from the traded instrument at submit time rather than
+  trusted to the caller, and defaults to $25,000 — below a full position, so
+  the first live order refuses until `--max-order-notional` raises it
+  deliberately.
 
 Buys round *down* to whole shares so a sizing error undershoots. Exits sell the
 entire position and are never banded: flat means flat.

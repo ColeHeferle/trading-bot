@@ -9,8 +9,8 @@ Alpaca's v2 API rather than against the live service, because the environment
 this was built in cannot reach it. Run `research/broker_check.py` first: it is
 read-only and will surface any mismatch before an order is ever placed.
 
-Nothing here is wired into the daily loop. This adapter can place an order when
-asked; it is not yet asked by anything.
+`research/trade.py` is what asks this adapter to act, and `research/daily.sh`
+runs it every day in dry-run mode; placing an order takes `--execute`.
 """
 
 from __future__ import annotations
@@ -172,7 +172,12 @@ class Broker(ABC):
 
     @abstractmethod
     def submit(
-        self, symbol: str, side: Side, quantity: float, order_id: str
+        self,
+        symbol: str,
+        side: Side,
+        quantity: float,
+        order_id: str,
+        price: float | None = None,
     ) -> BrokerOrder: ...
 
     @abstractmethod
@@ -247,14 +252,34 @@ class AlpacaBroker(Broker):
         ]
 
     def submit(
-        self, symbol: str, side: Side, quantity: float, order_id: str
+        self,
+        symbol: str,
+        side: Side,
+        quantity: float,
+        order_id: str,
+        price: float | None = None,
     ) -> BrokerOrder:
         """Place a market order, or return the one this id already placed.
 
         The duplicate case is not an error: it means a previous attempt got
         further than we recorded, and re-sending would double the position.
+
+        `price` exists only to feed the notional ceiling, and is fetched when
+        omitted rather than defaulted away: a limit the caller silently skips
+        by passing nothing is not a limit. If that lookup fails the order is
+        refused rather than sent unchecked — except when the broker already
+        holds this `order_id`, which means a retry that adds no exposure and
+        must stay recoverable whatever the data endpoint is doing.
         """
-        self.limits.check(symbol, quantity, None)
+        if price is None:
+            try:
+                price = self.latest_price(symbol)
+            except BrokerError:
+                existing = self.order_by_client_id(order_id)
+                if existing is not None:
+                    return existing
+                raise
+        self.limits.check(symbol, quantity, price)
         body = {
             "symbol": symbol,
             "qty": str(quantity),
