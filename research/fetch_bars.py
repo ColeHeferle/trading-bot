@@ -49,8 +49,12 @@ def from_yfinance(symbol: str, start: str | None) -> list[Candle]:
             "--source stooq"
         ) from exc
 
+    # Without a start date yfinance returns about one month, not everything
+    # it has — which quietly produced a 20-bar file for a rule that needs 50
+    # before it can signal at all. Ask for the full history explicitly.
+    window = {"start": start} if start else {"period": "max"}
     frame = yfinance.download(
-        symbol, start=start, auto_adjust=False, progress=False
+        symbol, auto_adjust=False, progress=False, **window
     )
     if frame.empty:
         raise SystemExit(f"yfinance returned no rows for {symbol!r}")

@@ -8,10 +8,10 @@ name: Daily
 # --execute, because a schedule nobody is watching is the wrong place to
 # decide to trade. Wiring execution in is a separate, deliberate change.
 #
-# The first run is also the experiment: data vendors often refuse cloud IP
-# ranges, and whether Stooq answers a GitHub runner cannot be known from
-# anywhere else. If it refuses, re-run from the Actions tab with source set to
-# yfinance.
+# Stooq refuses GitHub runners — measured, not assumed: the first run here got
+# HTTP 404 for a URL that answers fine from a home connection, which is how
+# some sites decline a cloud IP range without saying so. yfinance is therefore
+# the default. Stooq stays selectable in case that changes.
 
 on:
   schedule:
@@ -25,8 +25,8 @@ on:
       source:
         description: "Data source"
         type: choice
-        options: [stooq, yfinance]
-        default: stooq
+        options: [yfinance, stooq]
+        default: yfinance
 
 # Two runs committing to main at once would race. Queue instead, and never
 # cancel one partway: a fetch that is killed after writing the CSV but before
@@ -63,14 +63,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-          if [ "${{ inputs.source || 'stooq' }}" = "yfinance" ]; then
+          if [ "${{ inputs.source || 'yfinance' }}" = "yfinance" ]; then
             pip install yfinance
           fi
 
       - name: Fetch the day's bar
         run: |
           bash .github/report.sh '## Fetch' python research/fetch_bars.py \
-            --out "$BARS" --source "${{ inputs.source || 'stooq' }}"
+            --out "$BARS" --source "${{ inputs.source || 'yfinance' }}"
 
       - name: Advance the paper run
         run: bash .github/report.sh '## Paper run' python research/paper_trade.py "$STATE" "$BARS"
