@@ -149,8 +149,10 @@ python research/trade.py --symbol QQQ
 ```
 
 Only when (b) exits 0 and (c) prints a plan you agree with does `--execute`
-make sense. See [Before the first launch](../README.md#before-the-first-launch)
-for what preflight refuses and why.
+make sense — and the first one will refuse on the notional ceiling until you
+raise it deliberately ([§6](#6-when-it-goes-wrong)). See
+[Before the first launch](../README.md#before-the-first-launch) for what
+preflight refuses and why.
 
 Before the run has recorded any live bars, (c) says so and stops:
 
@@ -197,28 +199,40 @@ Three things in there are worth reading carefully:
 | `… is not the paper sandbox` | A base URL pointing at live | Intended. Live trading needs `allow_live=True` passed deliberately in code |
 | `N position(s) disagree` | Broker and run hold different things | Reconcile by hand ([§4](#4-prove-the-credentials-work)) |
 | `refused: … the feed is behind` | Newest bar older than 4 days | Re-run `fetch_bars.py`. Over a long holiday, raise `--max-bar-age-days` knowingly |
-| `exceeds max_order_quantity` | Order over the risk ceiling | See below |
+| `over max_order_notional` | Order above the dollar ceiling | See below |
 
-`RiskLimits` declares two ceilings, but **only one of them is currently
-enforced**:
+Two ceilings apply to every order, checked before anything is sent:
 
-| Limit | Default | Enforced? |
+| Limit | Default | Flag |
 | --- | --- | --- |
-| `max_order_quantity` | 10,000 shares | Yes |
-| `max_order_notional` | $25,000 | **No** — see below |
+| `max_order_notional` | $25,000 | `--max-order-notional` |
+| `max_order_quantity` | 10,000 shares | code only |
 
-`AlpacaBroker.submit` calls `self.limits.check(symbol, quantity, None)`, passing
-`None` for the price. The notional test inside `check` is guarded by
-`if price is not None`, so it never runs on the live path. A fully-invested QQQ
-order — roughly $100,000 on a $100k paper account, four times the stated
-ceiling — passes the share-count test at 166 and is sent.
+**The default notional ceiling is below a full position on a $100k account, on
+purpose.** A fully-invested QQQ order is around $100,000, so the first
+`--execute` refuses:
 
-The unit test covering this calls `RiskLimits.check` directly with an explicit
-price, so it passes while the path that actually places orders does not use it.
+```
+plan          QQQ: buy 166 — target 1.00, holding 0.00
 
-Treat the dollar ceiling as **not yet in effect**. Until it is wired up, the
-practical cap is the share count, and the real protection is that `trade.py`
-dry-runs by default.
+order failed: 166.0 QQQ at 601.42 is 99,835.72, over max_order_notional 25,000.00
+```
+
+Exit code 1, and nothing was sent. That is the limit working: a rule that has
+never traded live is exactly when a sizing bug is most likely, so the cap stops
+the order rather than warning about it. Raise it once you have read the number
+and agree with it:
+
+```bash
+python research/trade.py --symbol QQQ --execute --max-order-notional 150000
+```
+
+The price used is the traded instrument's, fetched from the broker at submit
+time rather than taken from the caller — an argument you can omit is not a
+ceiling. If that lookup fails the order is **refused rather than sent
+unchecked**, with one exception: a retry of an order id the broker already
+holds is returned as-is, because it adds no exposure and the duplicate-id
+protection must survive a data endpoint being down.
 
 ## 7. Placing the first real order
 

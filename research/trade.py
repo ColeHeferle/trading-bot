@@ -31,6 +31,7 @@ from trading_bot import (
     BrokerError,
     NotSafeToTrade,
     PaperRun,
+    RiskLimits,
     client_order_id,
     plan,
 )
@@ -65,6 +66,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live", type=Path, default=Path("paper/live_position.json"))
     parser.add_argument("--execute", action="store_true", help="place the order")
     parser.add_argument("--max-bar-age-days", type=int, default=4)
+    parser.add_argument(
+        "--max-order-notional",
+        type=float,
+        default=RiskLimits.max_order_notional,
+        help=(
+            "dollar ceiling on a single order (default "
+            f"{RiskLimits.max_order_notional:,.0f}). A fully invested position "
+            "on a funded account exceeds this, which is deliberate: raising it "
+            "should be a decision, not a default"
+        ),
+    )
     args = parser.parse_args(argv)
 
     key = os.environ.get("APCA_API_KEY_ID")
@@ -83,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
     # volatility target asks for a different fraction of equity every day, and
     # reading it as a boolean would silently trade the full size instead.
     target_weight = run.target_weight
-    broker = AlpacaBroker(key, secret)
+    broker = AlpacaBroker(
+        key, secret, limits=RiskLimits(max_order_notional=args.max_order_notional)
+    )
 
     sizing = run.rule.sizer or "fully invested"
     print(f"rule          {run.rule.strategy}{run.rule.params} [{run.rule.fingerprint}]")

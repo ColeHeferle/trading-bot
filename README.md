@@ -344,7 +344,11 @@ Three things refuse to trade rather than guessing:
   behind, and acting on a price that may be days old is worse than doing nothing;
 - a **position that disagrees** with `paper/live_position.json` halts everything,
   because trading on top of a divergence compounds it;
-- an order over the **risk limits** is rejected before it is sent.
+- an order over the **risk limits** is rejected before it is sent. The dollar
+  ceiling is priced from the traded instrument at submit time rather than
+  trusted to the caller, and defaults to $25,000 — below a full position, so
+  the first live order refuses until `--max-order-notional` raises it
+  deliberately.
 
 Buys round *down* to whole shares so a sizing error undershoots. Exits sell the
 entire position and are never banded: flat means flat.
