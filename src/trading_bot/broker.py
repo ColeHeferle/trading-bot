@@ -137,27 +137,67 @@ class HttpTransport:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._key_id = key_id
+        self._padded = key_id != key_id.strip() or secret_key != secret_key.strip()
         self._headers = {
             "APCA-API-KEY-ID": key_id,
             "APCA-API-SECRET-KEY": secret_key,
             "Content-Type": "application/json",
         }
 
+    def _rejected(self) -> str:
+        """Why a 401 probably happened, from what this transport can see.
+
+        A rejected credential is indistinguishable from a wrong one in the
+        response body — Alpaca says `{"message": "unauthorized."}` either way —
+        but the key id and the endpoint are both right here, so two of the
+        three usual causes can be checked rather than guessed at.
+        """
+        if self._padded:
+            return (
+                "\n  the key id or secret has leading/trailing whitespace, which "
+                "is sent as part of\n  the credential. Re-save it with no stray "
+                "characters."
+            )
+        if self.base_url == PAPER_URL and not self._key_id.startswith("PK"):
+            start = self._key_id[:2] or "(empty)"
+            return (
+                f"\n  this key id starts with {start!r}, and the paper sandbox "
+                "only accepts paper keys,\n  which start with 'PK'. Generate one "
+                "with Paper Trading selected in the dashboard."
+            )
+        return (
+            "\n  the key id looks right for this endpoint, so the likeliest cause "
+            "is a mismatched\n  pair: generating a new secret invalidates the old "
+            "one, so both halves must come\n  from the same generation."
+        )
+
     def request(
         self, method: str, path: str, body: dict[str, Any] | None = None
     ) -> Any:
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(
-            f"{self.base_url}{path}", data=data, method=method, headers=self._headers
+            f"{self.base_url}{path}", data=data, method=method,
+            headers=self._headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8", "replace")
+        except ValueError as exc:
+            # A newline in a credential is refused when the headers are written,
+            # not when the Request is built, and arrived as a bare traceback.
+            raise BrokerError(
+                f"{method} {path} was never sent: {exc}. A newline in the key id "
+                "or secret does this; re-save the credential without one."
+            ) from exc
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:400]
             # Carry the status so callers can tell "no such position" (404)
             # from "duplicate order" (422) from a real outage.
-            raise BrokerError(f"{method} {path} -> {exc.code}: {detail}") from exc
+            message = f"{method} {path} -> {exc.code}: {detail}"
+            if exc.code in (401, 403):
+                message += self._rejected()
+            raise BrokerError(message) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise BrokerError(f"{method} {path} failed: {exc}") from exc
         return json.loads(raw) if raw.strip() else None
