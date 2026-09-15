@@ -1,0 +1,206 @@
+"""The drawdown arithmetic a funded account lives or dies on."""
+
+from __future__ import annotations
+
+import pytest
+
+from trading_bot.prop import (
+    INSTRUMENTS,
+    PRESETS,
+    DrawdownFloor,
+    Instrument,
+    PropAccount,
+    breakeven_win_rate,
+    contracts_for_risk,
+    expectancy,
+    max_risk_per_trade,
+    ruin_probability,
+)
+
+
+def account(**overrides) -> PropAccount:
+    base = dict(
+        name="T", starting_balance=100_000.0, max_loss_limit=3_000.0,
+        profit_target=6_000.0, max_minis=12, max_micros=120,
+    )
+    return PropAccount(**{**base, **overrides})
+
+
+class TestDrawdownFloor:
+    def test_floor_starts_one_limit_below_balance(self):
+        book = DrawdownFloor(account())
+        assert book.floor == 97_000.0
+        assert book.room == 3_000.0
+
+    def test_realized_profit_lifts_the_floor(self):
+        book = DrawdownFloor(account())
+        book.close_trade(1_000.0)
+        assert book.floor == 98_000.0
+        assert book.room == 3_000.0  # room is constant while trailing
+
+    def test_floor_stops_at_the_starting_balance(self):
+        book = DrawdownFloor(account())
+        book.close_trade(10_000.0)
+        assert book.floor == 100_000.0  # not 107_000
+        assert book.room == 10_000.0  # and room now grows with profit
+
+    def test_unrealized_peak_ratchets_the_floor_intraday(self):
+        """The mechanic that makes an intraday account unlike a brokerage one."""
+        book = DrawdownFloor(account())
+        book.mark(100_800.0)  # trade runs 800 in your favour
+        book.close_trade(0.0)  # and you exit flat
+        assert book.balance == 100_000.0  # nothing earned
+        assert book.floor == 97_800.0  # but 800 of room is gone
+        assert book.room == 2_200.0
+
+    def test_end_of_day_trail_ignores_the_unrealized_peak(self):
+        book = DrawdownFloor(account(trail="end_of_day"))
+        book.mark(100_800.0)
+        book.close_trade(0.0)
+        assert book.room == 3_000.0  # the round trip was free
+
+    def test_end_of_day_trail_marks_on_close_day(self):
+        book = DrawdownFloor(account(trail="end_of_day"))
+        book.close_trade(500.0)
+        book.close_day()
+        assert book.floor == 97_500.0
+
+    def test_touching_the_floor_breaches(self):
+        book = DrawdownFloor(account())
+        book.close_trade(-3_000.0)
+        assert book.breached
+
+    def test_a_loss_short_of_the_floor_does_not_breach(self):
+        book = DrawdownFloor(account())
+        book.close_trade(-2_999.0)
+        assert not book.breached
+
+    def test_an_unrealized_excursion_can_breach_without_a_realized_loss(self):
+        book = DrawdownFloor(account())
+        book.mark(96_000.0)
+        assert book.breached
+
+    def test_rejects_an_unknown_trail_mode(self):
+        with pytest.raises(ValueError):
+            account(trail="weekly")
+
+
+class TestContractsForRisk:
+    def test_rounds_down_so_a_sizing_error_undershoots(self):
+        mes = INSTRUMENTS["MES"]  # 20 ticks = $25, plus $1 round turn
+        assert contracts_for_risk(150.0, 20, mes, account()) == 5  # 5 * 26 = 130
+
+    def test_counts_the_round_turn_cost_in_the_loss(self):
+        free = Instrument("X", 1.0, 25.0, 0.0, is_micro=True)
+        charged = Instrument("X", 1.0, 25.0, 5.0, is_micro=True)
+        assert contracts_for_risk(100.0, 1, free, account()) == 4
+        assert contracts_for_risk(100.0, 1, charged, account()) == 3
+
+    def test_refuses_rather_than_widening_the_stop(self):
+        es = INSTRUMENTS["ES"]  # 20 ticks = $250
+        assert contracts_for_risk(150.0, 20, es, account()) == 0
+
+    def test_respects_the_position_cap(self):
+        mnq = INSTRUMENTS["MNQ"]
+        assert contracts_for_risk(1_000_000.0, 20, mnq, account(max_micros=7)) == 7
+
+    def test_minis_and_micros_use_separate_caps(self):
+        es = INSTRUMENTS["ES"]
+        acct = account(max_minis=2, max_micros=120)
+        assert contracts_for_risk(1_000_000.0, 20, es, acct) == 2
+
+    def test_rejects_a_non_positive_stop(self):
+        with pytest.raises(ValueError):
+            contracts_for_risk(150.0, 0, INSTRUMENTS["MES"], account())
+
+
+class TestExpectancy:
+    def test_breakeven_win_rate_zeroes_the_expectancy(self):
+        for reward_risk in (0.5, 1.0, 2.0, 3.0):
+            rate = breakeven_win_rate(reward_risk)
+            assert expectancy(rate, reward_risk) == pytest.approx(0.0, abs=1e-12)
+
+    def test_costs_raise_the_bar(self):
+        assert breakeven_win_rate(1.0, cost_ratio=0.1) > breakeven_win_rate(1.0)
+
+    def test_a_coin_flip_at_even_money_needs_half(self):
+        assert breakeven_win_rate(1.0) == pytest.approx(0.5)
+
+
+class TestRuinProbability:
+    def test_outcomes_partition(self):
+        est = ruin_probability(account(), 300.0, 0.5, 1.5, trials=2_000)
+        assert est.ruin + est.target + est.undecided == pytest.approx(1.0)
+
+    def test_bigger_risk_ruins_more_often_with_a_real_edge(self):
+        small = ruin_probability(account(), 200.0, 0.5, 1.5, trials=4_000)
+        large = ruin_probability(account(), 600.0, 0.5, 1.5, trials=4_000)
+        assert large.ruin > small.ruin
+
+    def test_the_trail_is_worse_than_classical_gamblers_ruin(self):
+        """A driftless walk on a *fixed* floor ruins target/(target+room) of
+        the time — 6000/9000 = 66.7% here. The trailing floor is strictly
+        worse than that, and the gap is what the trail costs a coin flip."""
+        est = ruin_probability(account(), 200.0, 0.5, 1.0, trials=8_000, max_trades=2_000)
+        assert est.undecided == 0.0
+        assert est.ruin > 0.75  # measured ~0.81 against the fixed-floor 0.667
+
+    def test_a_worthless_edge_paying_costs_almost_always_ruins(self):
+        est = ruin_probability(
+            account(), 200.0, 0.5, 1.0, cost_dollars=8.0, trials=4_000, max_trades=2_000
+        )
+        assert est.ruin > 0.90
+
+    def test_the_intraday_trail_is_never_kinder_than_end_of_day(self):
+        intraday = ruin_probability(account(), 300.0, 0.5, 1.5, give_back=0.5, trials=6_000)
+        eod = ruin_probability(
+            account(trail="end_of_day"), 300.0, 0.5, 1.5, give_back=0.5, trials=6_000
+        )
+        assert intraday.ruin >= eod.ruin
+
+    def test_costs_only_hurt(self):
+        free = ruin_probability(account(), 300.0, 0.5, 1.5, trials=6_000)
+        charged = ruin_probability(account(), 300.0, 0.5, 1.5, cost_dollars=30.0, trials=6_000)
+        assert charged.ruin > free.ruin
+
+    def test_is_reproducible_for_a_seed(self):
+        kwargs = dict(trials=2_000, seed=7)
+        assert ruin_probability(account(), 300.0, 0.5, 1.5, **kwargs) == ruin_probability(
+            account(), 300.0, 0.5, 1.5, **kwargs
+        )
+
+    def test_needs_a_target(self):
+        with pytest.raises(ValueError):
+            ruin_probability(account(profit_target=None), 300.0, 0.5, 1.5, trials=10)
+
+    def test_rejects_an_impossible_win_rate(self):
+        with pytest.raises(ValueError):
+            ruin_probability(account(), 300.0, 1.5, 1.5, trials=10)
+
+
+class TestMaxRiskPerTrade:
+    def test_a_better_edge_permits_more_risk(self):
+        weak = max_risk_per_trade(account(), 0.50, 1.0, trials=1_500)
+        strong = max_risk_per_trade(account(), 0.65, 1.5, trials=1_500)
+        assert strong > weak
+
+    def test_never_exceeds_the_whole_drawdown(self):
+        acct = account()
+        assert max_risk_per_trade(acct, 0.95, 5.0, trials=800) <= acct.max_loss_limit
+
+    def test_a_losing_edge_has_no_safe_size(self):
+        assert max_risk_per_trade(account(), 0.30, 1.0, trials=1_500) < 50.0
+
+    def test_a_tighter_tolerance_permits_less_risk(self):
+        loose = max_risk_per_trade(account(), 0.55, 1.5, tolerance=0.25, trials=1_500)
+        tight = max_risk_per_trade(account(), 0.55, 1.5, tolerance=0.02, trials=1_500)
+        assert tight < loose
+
+
+class TestPresets:
+    def test_every_preset_is_internally_consistent(self):
+        for name, acct in PRESETS.items():
+            assert acct.name == name
+            assert acct.max_loss_limit > 0
+            assert acct.profit_target and acct.profit_target > 0
+            assert acct.max_micros >= acct.max_minis

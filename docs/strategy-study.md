@@ -547,3 +547,116 @@ variants. It does not survive either.
 
 The horizon is the problem, not the index. Nothing at daily frequency on these
 markets offers an edge larger than the cost of trading it.
+
+---
+
+# A funded prop account is a different problem (2026-09-15)
+
+Everything above measures strategies against buy-and-hold on daily bars over
+decades. None of it transfers to a funded futures account, and it is worth
+being precise about why rather than assuming the sizing ideas carry over.
+
+Reproduce with `python research/prop_risk.py`.
+
+## The constraint that replaces every other constraint
+
+A brokerage account dies when it runs out of money. A funded account dies when
+equity touches a floor that trails the *peak* — and on an intraday-trailed
+account that peak is marked on unrealized equity. A trade that runs $800 your
+way and comes back to breakeven earns nothing and costs $800 of room.
+
+`trading_bot.prop.DrawdownFloor` is that state machine. The floor stops rising
+once it reaches the starting balance, so the account gets safer as it profits
+and is at its most fragile on day one.
+
+On a $100,000 account with a $3,000 limit, the loss budget is **3% of
+notional**. The best configuration measured anywhere in this repo — Nasdaq
+`SmaCrossover(10, 50)` at a 25% volatility target — has a 30.3% maximum
+drawdown. Run against this ruleset it fails the account roughly ten times
+over. That is not a tuning problem. Daily-bar trend following and a 3%
+trailing floor are incompatible at any parameterization.
+
+## Ruin is the governing number, and it is worse than gambler's ruin
+
+Classical gambler's ruin on a *fixed* floor puts a driftless walk's failure
+odds at `target / (target + room)` — 6000/9000 = **66.7%** here. Measured
+against a trailing floor the same coin flip ruins **81.1%** of the time. The
+14-point gap is what the trail costs a trader with no edge, and it is charged
+before any commission.
+
+Add costs and it is settled. 20,000 paths, $6,000 target, MES round-turn fees:
+
+| risk/trade | win | R:R | ruin | reached target |
+| ---: | ---: | ---: | ---: | ---: |
+| $100 | 50% | 1.0 | **92.0%** | 0.3% |
+| $200 | 50% | 1.0 | **95.6%** | 4.2% |
+| $300 | 50% | 1.0 | **92.4%** | 7.6% |
+| $500 | 50% | 1.0 | **88.4%** | 11.6% |
+
+Note the direction: with no edge, ruin *falls* as risk rises. That is correct
+and it is a warning, not a tactic. In an unfavourable game the only route to a
+target is to arrive before costs grind you down, which is why bold play is
+optimal when the edge is negative. **If sizing up ever looks like it improves
+your odds, that is evidence the edge is zero.**
+
+## With a real edge, the numbers are survivable and still not comfortable
+
+Same account, no costs, assuming the stated edge is real and stationary:
+
+| risk/trade | win | R:R | expectancy | ruin | median trades to target |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| $200 | 40% | 2.0 | 0.20R | 17.6% | 114 |
+| $200 | 50% | 1.5 | 0.25R | **3.6%** | 107 |
+| $500 | 40% | 2.0 | 0.20R | **49.2%** | 24 |
+| $500 | 55% | 1.0 | 0.10R | **50.8%** | 50 |
+
+$500 is one sixth of the drawdown — a size most would call conservative — and
+a genuinely profitable 40%/2:1 system fails the account on a coin flip.
+
+The 55%/1:1 row is the instructive one. A higher win rate ruins *more* often
+than the 40% system, because thinner expectancy needs twice as many trades and
+every trade is another draw against the floor. **Time in the account is a risk
+exposure, not a neutral backdrop.**
+
+## Instrument choice is most of the risk budget
+
+At a 20-tick stop, one contract against a $3,000 limit:
+
+| instrument | loss per contract | % of drawdown | straight losses to failure |
+| --- | ---: | ---: | ---: |
+| ES | $254.00 | 8.5% | **11.8** |
+| NQ | $104.00 | 3.5% | 28.8 |
+| MES | $26.00 | 0.9% | 115.4 |
+| MNQ | $11.00 | 0.4% | 272.7 |
+
+Twelve consecutive losses is an ordinary run for a 45% system. Trading the
+full-size contract on this account makes a normal losing streak terminal
+before any strategy question arises. Micros are not a cautious choice here;
+minis are an unsized one.
+
+## Withdrawing makes it harder, and income was the point
+
+Compounding to a target once is the easy version. Taking income means
+repeating a $2,000 run and resetting. Probability of surviving N cycles:
+
+| risk | win | R:R | ruin/cycle | 3 cycles | 6 cycles | 12 cycles |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| $150 | 50% | 1.5 | 0.6% | 98.1% | 96.2% | **92.6%** |
+| $150 | 40% | 2.0 | 4.9% | 86.0% | 73.9% | **54.6%** |
+| $300 | 50% | 1.5 | 8.0% | 78.0% | 60.8% | **37.0%** |
+| $300 | 40% | 2.0 | 17.9% | 55.4% | 30.7% | **9.4%** |
+
+A year of monthly payouts is twelve cycles. At $300 risk on a real 40%/2:1
+edge, the account survives that year **9.4%** of the time.
+
+## What this does not model
+
+Trades are independent draws with a fixed win rate and a fixed R. Real losing
+streaks cluster, real traders raise size after losses, and a real edge decays.
+Every one of those makes the measured ruin optimistic. Slippage, gaps through
+stops, news halts, the flat-by-close requirement and platform outages are all
+absent. Treat these figures as the **best case for a stated edge**, not a
+forecast.
+
+Nothing here supplies an edge. `ruin_probability` takes the win rate as an
+argument because this repo has never measured one that survived deflation.
