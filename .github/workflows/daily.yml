@@ -85,11 +85,14 @@ jobs:
             exit 0
           fi
           git commit -m "Record $(date -u +%Y-%m-%d) bar and advance the run"
-          # Pushes made with GITHUB_TOKEN do not trigger workflows, so this
-          # cannot set itself off again. Rebase first anyway: a human commit
-          # landing mid-run would otherwise reject the push.
-          git pull --rebase origin main
-          git push origin HEAD:main
+          # Commit back to whichever ref was checked out, never a hardcoded
+          # main. The schedule runs on main so nothing changes there, but a
+          # hardcoded target meant dispatching this from a branch would push
+          # that branch's whole content onto main — a bad way to find out.
+          git pull --rebase origin "$REF"
+          git push origin "HEAD:$REF"
+        env:
+          REF: ${{ github.ref_name }}
 
       - name: What the rule opens with
         # Exits 1 on anything it wants a human to look at, which is a report
@@ -105,3 +108,35 @@ jobs:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
         run: bash .github/report.sh '## Broker (dry run)' python research/trade.py --symbol "$SYMBOL"
+
+      - name: Why the broker leg was skipped
+        # A missing secret and a deliberate "not configured yet" looked
+        # identical — both just a skipped step — which cost three runs to tell
+        # apart. Actions keeps secrets and variables in separate stores with
+        # the same names available, so the most useful thing this can say is
+        # which store the name is actually in.
+        if: ${{ env.HAS_KEYS != 'true' }}
+        env:
+          AS_VARIABLE: ${{ vars.APCA_API_KEY_ID != '' }}
+        run: |
+          {
+            echo '## Broker leg skipped'
+            echo
+            if [ "$AS_VARIABLE" = "true" ]; then
+              echo 'APCA_API_KEY_ID is set as a **variable**, not a secret.'
+              echo
+              echo 'Actions keeps these in separate stores. `secrets.X` cannot'
+              echo 'read a variable, so the broker step has nothing to'
+              echo 'authenticate with. Settings -> Secrets and variables ->'
+              echo 'Actions -> **Secrets** tab -> New repository secret.'
+            else
+              echo 'APCA_API_KEY_ID is empty as both a secret and a variable,'
+              echo 'so nothing by that name is reaching this workflow.'
+              echo
+              echo 'Check, in order: the name matches exactly (not'
+              echo 'ALPACA_API_KEY_ID, no hyphens, no trailing space); it is a'
+              echo '**Repository** secret rather than an **Environment** one,'
+              echo 'which this job would need to declare to see; and it is'
+              echo 'under the Actions tab rather than Codespaces or Dependabot.'
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
