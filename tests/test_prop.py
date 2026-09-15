@@ -178,6 +178,57 @@ class TestRuinProbability:
             ruin_probability(account(), 300.0, 1.5, 1.5, trials=10)
 
 
+class TestTailLosses:
+    """A high win rate hides oversized losses; ruin does not."""
+
+    def test_a_tail_raises_ruin_at_an_unchanged_win_rate(self):
+        kwargs = dict(trials=6_000, max_trades=1_500, give_back=0.5)
+        flat = ruin_probability(account(), 300.0, 0.75, 0.5, **kwargs)
+        tailed = ruin_probability(
+            account(), 300.0, 0.75, 0.5, tail_rate=0.1, tail_multiple=3.0, **kwargs
+        )
+        assert tailed.ruin > flat.ruin * 2
+
+    def test_expectancy_barely_moves_while_ruin_doubles(self):
+        """The trap: the average stays positive while survival collapses."""
+        kwargs = dict(trials=6_000, max_trades=1_500, give_back=0.5)
+        flat = ruin_probability(account(), 300.0, 0.75, 0.5, **kwargs)
+        tailed = ruin_probability(
+            account(), 300.0, 0.75, 0.5, tail_rate=0.1, tail_multiple=3.0, **kwargs
+        )
+        # Expectancy falls from 0.125R to 0.075R — still positive, still "works",
+        # while ruin goes from roughly 1-in-30 to roughly 1-in-3.
+        assert expectancy(0.75, 0.5) > 0
+        assert flat.ruin < 0.10
+        assert tailed.ruin > 0.25
+
+    def test_a_tail_multiple_of_one_is_the_flat_case(self):
+        """Drawing the tail consumes a random number, so the paths differ in
+        detail; a tail the same size as an ordinary loss must still leave the
+        answer alone."""
+        kwargs = dict(trials=4_000, seed=3, max_trades=1_000)
+        tailed = ruin_probability(
+            account(), 300.0, 0.6, 1.0, tail_rate=0.5, tail_multiple=1.0, **kwargs
+        )
+        flat = ruin_probability(account(), 300.0, 0.6, 1.0, **kwargs)
+        assert tailed.ruin == pytest.approx(flat.ruin, abs=0.01)
+
+    def test_a_zero_tail_rate_leaves_the_stream_untouched(self):
+        """tail_rate 0 draws nothing, so this one is exactly reproducible."""
+        kwargs = dict(trials=4_000, seed=3, max_trades=1_000)
+        assert ruin_probability(
+            account(), 300.0, 0.6, 1.0, tail_rate=0.0, tail_multiple=9.0, **kwargs
+        ) == ruin_probability(account(), 300.0, 0.6, 1.0, **kwargs)
+
+    def test_rejects_a_tail_smaller_than_the_ordinary_loss(self):
+        with pytest.raises(ValueError):
+            ruin_probability(account(), 300.0, 0.6, 1.0, tail_multiple=0.5, trials=10)
+
+    def test_rejects_an_impossible_tail_rate(self):
+        with pytest.raises(ValueError):
+            ruin_probability(account(), 300.0, 0.6, 1.0, tail_rate=1.5, trials=10)
+
+
 class TestMaxRiskPerTrade:
     def test_a_better_edge_permits_more_risk(self):
         weak = max_risk_per_trade(account(), 0.50, 1.0, trials=1_500)

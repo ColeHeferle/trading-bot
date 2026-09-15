@@ -242,6 +242,8 @@ def ruin_probability(
     target_dollars: float | None = None,
     give_back: float = 0.0,
     cost_dollars: float = 0.0,
+    tail_rate: float = 0.0,
+    tail_multiple: float = 1.0,
     max_trades: int = 500,
     trials: int = 20_000,
     seed: int = 0,
@@ -262,6 +264,14 @@ def ruin_probability(
     intraday-trailed account 0 is not conservative, it is wrong: no trade
     exits at its exact high.
 
+    `tail_rate` and `tail_multiple` break the assumption that every loss is
+    the same size. With probability `tail_rate` a losing trade loses
+    `tail_multiple` times its risk instead of exactly its risk — the stop that
+    gapped, the one held through news, the one averaged into. A high win rate
+    hides these completely in a win/loss count and they dominate ruin, because
+    a rare loss worth fifteen ordinary wins ends an account regardless of how
+    often the ordinary wins arrive.
+
     `undecided` counts paths that did neither within `max_trades` — a large
     value means the horizon, not the edge, decided the answer.
     """
@@ -269,6 +279,10 @@ def ruin_probability(
         raise ValueError("win_rate must be a probability")
     if risk_dollars <= 0:
         raise ValueError("risk_dollars must be positive")
+    if not 0.0 <= tail_rate <= 1.0:
+        raise ValueError("tail_rate must be a probability")
+    if tail_multiple < 1.0:
+        raise ValueError("tail_multiple below 1.0 would make the tail a smaller loss")
     target = target_dollars if target_dollars is not None else account.profit_target
     if target is None:
         raise ValueError("no target: pass target_dollars or give the account a profit_target")
@@ -287,7 +301,12 @@ def ruin_probability(
         book = DrawdownFloor(account)
         worst_room = book.room
         for n in range(1, max_trades + 1):
-            outcome = win if rng.random() < win_rate else loss
+            if rng.random() < win_rate:
+                outcome = win
+            elif tail_rate and rng.random() < tail_rate:
+                outcome = -risk_dollars * tail_multiple - cost_dollars
+            else:
+                outcome = loss
             # The trade's best price, which is what an intraday floor trails.
             book.mark(book.balance + max(outcome, 0.0) + excursion)
             book.close_trade(outcome)

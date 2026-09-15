@@ -685,6 +685,68 @@ comfortable. **A trader cannot locate their own column on this table until
 well past a hundred trades**, and until then the only defensible position is
 the top row.
 
+## A high win rate is not the number that decides this
+
+An account holder reporting six months at a 70-80% win rate is reporting the
+statistic least able to settle the question. Expectancy is `win_rate * R:R -
+(1 - win_rate)`, and the second term is invisible in a win count.
+
+What each win rate requires of the loss size, after MES costs:
+
+| win rate | largest average loss, per $1 of average win | i.e. risk this much to make 1 |
+| ---: | ---: | ---: |
+| 65% | 0.60 | 1.7 |
+| 70% | 0.49 | 2.1 |
+| 75% | 0.39 | 2.6 |
+| 80% | 0.30 | 3.3 |
+| 85% | 0.22 | 4.5 |
+
+The bar rises with the win rate, which is the trap. Win rates in this range
+are usually produced by taking profit early and giving losers room, and the
+looser the losers, the more of them the ratio has to survive. An 80% win rate
+risking 4 to make 1 loses money; a 55% win rate risking 1 to make 1.5 does not.
+
+## Tail losses dominate ruin while leaving expectancy nearly intact
+
+The model above assumed every loss is exactly one R. Real records contain
+losses that are not: the stop that gapped, the one held through a number, the
+one averaged into. A win count cannot show them and an average barely can.
+
+75% win rate at 0.5:1 (risking 2 to make 1) — genuinely profitable, +0.12R
+before costs. $300 risk, one loss in ten larger than planned, 20,000 paths:
+
+| oversized loss | expectancy | ruin (Test, EOD) | ruin (PRO, intraday) |
+| --- | ---: | ---: | ---: |
+| none, every stop holds | 0.08R | 8.9% | 10.4% |
+| 2x planned risk | 0.06R | 26.9% | 29.1% |
+| 3x planned risk | 0.03R | **52.8%** | **54.4%** |
+| 5x planned risk | -0.01R | 83.6% | 84.1% |
+| 8x planned risk | -0.09R | 93.6% | 93.9% |
+
+Expectancy falls from 0.08R to 0.03R — still positive, still a system that
+"works" on any average-based measure — while ruin goes from one-in-eleven to
+worse than a coin flip. **Averages are nearly blind to the tail and survival
+is not.** This is why the largest loss in a record is worth more scrutiny than
+the win rate, and why a record with no stop discipline cannot be evaluated at
+all.
+
+## The Test-to-PRO trail switch costs less than expected
+
+Test phase trails on the closing balance; PRO trails intraday on unrealized
+equity. A record built in Test therefore overstates PRO survivability. It does
+— but modestly, and it is worth saying so rather than overselling the point:
+
+| risk/trade | ruin in Test | ruin in PRO | penalty |
+| ---: | ---: | ---: | ---: |
+| $100 | 0.0% | 0.0% | +0.0% |
+| $300 | 9.0% | 10.8% | +1.7% |
+| $500 | 26.0% | 28.9% | +2.9% |
+| $750 | 39.1% | 43.7% | +4.6% |
+
+Four points at the largest size tested. Real, worth carrying, and an order of
+magnitude smaller than the tail effect above. The trail mode is not the thing
+to worry about; the loss distribution is.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
