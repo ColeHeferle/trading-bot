@@ -898,6 +898,41 @@ weighting or reparameterisation distinguishes them. What distinguishes them is
 a losing session traded under the current discipline — which is the one
 observation the record does not contain and the one that would settle it.
 
+## The Phase 1 gate
+
+The conclusion of the work above is that the remaining uncertainty is missing
+data rather than missing method, so the deliverable is a threshold rather than
+another estimate:
+
+```bash
+python research/analyze_log.py --gate --only-account <id> trades.csv
+```
+
+Seven criteria, all floors, all of which must clear. It exits non-zero on any
+failure. Against the 52-trade account that prompted it:
+
+```
+  [FAIL]  sample size             52 trades              need 108 for t=2
+  [FAIL]  edge established        t = 1.39               need t >= 2.00
+  [PASS]  reward:risk             1.364                  need > 0.926
+  [PASS]  loss tail               2.78x average          need <= 2.78x
+  [PASS]  no size escalation      -0.64 after a loss     need <= 0.00
+  [FAIL]  sessions                7 sessions             need 20
+  [PASS]  a losing session exists 1                      cannot falsify without one
+```
+
+Two of these are worth defending because they are unusual.
+
+**A losing session is required.** A record with none has not been tested, and
+every statistic computed from it measures a market that happened to cooperate.
+The gate refuses an unbroken winning record even when everything else passes —
+which is the one case where a trader is most certain they are ready.
+
+**The thresholds are code, not intentions.** The decision they gate is whether
+to trade larger, and that is the decision a good run makes tempting and a bad
+run makes urgent. A threshold agreed in advance and re-examined in the moment
+is not a threshold. This one is a process exit code.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
