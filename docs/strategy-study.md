@@ -798,6 +798,57 @@ so the true pass probability is below every figure in this table by an amount
 that cannot be measured from the log. Treat 54% as a ceiling that assumes
 away the most likely failure.
 
+## The evaluation and the funded account want opposite sizes
+
+Removing a self-imposed deadline changes the problem, and measuring each
+account's own tail rather than borrowing one changes the conclusion.
+
+Separating the 92-trade log by account number gives two different traders:
+
+| population | win | R:R | tail (share of losses) | tail size | expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| all 92 trades | 53.3% | 0.684 | 14.0% | 3.40x | **-0.260R** |
+| current account, 52 trades | 51.9% | 1.364 | 8.0% | 2.78x | **+0.159R** |
+
+Applying the first tail to the second population, as an earlier pass here
+did, understates a real change in behaviour. The loss discipline improved and
+the edge is positive because of it. It is 52 trades, and at that sample the
+t-statistic against breakeven is 1.39 — real, not yet established.
+
+**Passing the evaluation** trails end-of-day, and failing costs only the fee.
+Expected fees to eventually pass, counting failed attempts:
+
+| size | pass | months per attempt | expected fees |
+| --- | ---: | ---: | ---: |
+| 5 MNQ | 96.0% | 8.5 | $1,506 |
+| 10 MNQ | 75.3% | 4.3 | $960 |
+| 5 NQ | 45.7% | 1.7 | $633 |
+| 8 NQ | 38.4% | 1.1 | **$471** |
+
+**Keeping the funded account** trails intraday, failing costs the account, and
+the target repeats forever. Probability of surviving twelve $2,000 payout
+cycles — one year:
+
+| size | ruin per cycle | survives 12 cycles | income at 80% split |
+| --- | ---: | ---: | ---: |
+| 5 MNQ | 2.3% | **75.5%** | $564/mo |
+| 10 MNQ | 13.8% | 17.1% | $1,129/mo |
+| 5 NQ | 31.0% | 1.2% | $2,822/mo |
+| 8 NQ | 35.6% | 0.5% | $4,516/mo |
+
+The two tables point in opposite directions, and that is the finding. The
+size that passes cheapest is the size that cannot hold the account it wins.
+Optimising the evaluation for speed rehearses precisely the habit that ends
+the funded account, and the evaluation's forgiving trail hides the cost until
+it is charged in the phase where failure is not refundable.
+
+**No size survives a year comfortably.** The best row is 75.5%, and it earns
+$564 a month. That is the arithmetic consequence of extracting income from a
+$3,000 buffer on a $100,000 notional: the buffer is 3% of the account being
+traded, and a rule that repeatedly takes $2,000 out of it is drawing down two
+thirds of its own risk budget every cycle. The constraint is structural, and
+no entry signal changes it.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
