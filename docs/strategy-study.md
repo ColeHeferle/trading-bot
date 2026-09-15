@@ -747,6 +747,57 @@ Four points at the largest size tested. Real, worth carrying, and an order of
 magnitude smaller than the tail effect above. The trail mode is not the thing
 to worry about; the loss distribution is.
 
+## Passing a $6,000 target in three sessions
+
+Measured against a real edge rather than an assumed one: 51.9% win rate at
+1.364 reward:risk, the figures from the only profitable account in a 92-trade
+log. EOD trail (Test phase), $3,000 limit, 25,000 paths, capped at the number
+of trades three sessions physically allow.
+
+| NQ size | risk/trade | trades needed | pass | ruin | ran out of time |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 | $337 | 78 | 46.3% | 25.3% | 28.4% |
+| **8** | $505 | 52 | **54.4%** | 42.2% | 3.3% |
+| 10 | $674 | 39 | 51.9% | 47.8% | 0.3% |
+| 12 (cap) | $842 | 31 | 47.3% | 52.7% | 0.0% |
+| 15 | $1,011 | 26 | 41.4% | 58.6% | 0.0% |
+
+**The optimum is interior.** Below it the deadline binds — a quarter of paths
+at 5 contracts simply run out of sessions before reaching the target. Above
+it ruin climbs faster than the target arrives. Neither the smallest nor the
+largest size is right when a deadline and a floor apply at once, which is the
+one situation where "trade smaller" stops being universally correct advice.
+
+## The stop is worth more than the size
+
+Same edge, same 5-contract size, the only difference being whether the
+measured loss tail is present — one loss in twelve at 5.4x the average, taken
+from the log:
+
+| | pass | ruin |
+| --- | ---: | ---: |
+| hard stop honoured, no tail | **46.3%** | 25.3% |
+| tail as actually traded | **16.1%** | 75.2% |
+
+Thirty points of pass probability, and ruin tripled. No sizing decision
+anywhere in this table moves the result that far — the best size change is
+worth eight points and the stop is worth thirty. **Position sizing is the
+second most important decision. Honouring the stop is the first.**
+
+## The pace assumption that undoes all of it
+
+Every row above assumes the edge survives being traded at the frequency the
+deadline demands. It measures a trader averaging 5.4 trades per session, and
+the 8-contract row needs 52 trades in three sessions — seventeen a day, more
+than three times the observed pace.
+
+An edge measured on selective entries in one narrow window is not the same
+edge when the trader must take three times as many to finish on schedule. The
+additional trades come from outside the conditions that produced the record,
+so the true pass probability is below every figure in this table by an amount
+that cannot be measured from the log. Treat 54% as a ceiling that assumes
+away the most likely failure.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
