@@ -849,6 +849,55 @@ traded, and a rule that repeatedly takes $2,000 out of it is drawing down two
 thirds of its own risk budget every cycle. The constraint is structural, and
 no entry signal changes it.
 
+## Two gaps closed, one that would not close (2026-09-15)
+
+Asked what would raise confidence in the sizing plan, three of five stated
+gaps were attackable from the log already in hand. The results split.
+
+**Size discipline: closed, favourably.** The concern was that position size
+escalates after a loss — the mechanism behind most blown accounts, and the
+one this trader's history made plausible. It does not happen here:
+
+| after a... | average position |
+| --- | ---: |
+| winning trade | 4.67 contracts |
+| losing trade | 4.16 contracts |
+| loss over 2x average | 3.67 contracts |
+
+Size falls after losses and falls further after bad ones. That is the
+opposite of revenge sizing, and it removes the behavioural risk that made the
+earlier sizing recommendation a judgement call rather than a calculation.
+
+**Clustering: confirmed.** Session-level loss rates on the current account
+vary at a standard deviation of 0.171 where independent trades predict 0.109.
+Trades are not independent draws, so `ruin_probability` is optimistic.
+
+**The fix for it did not work, and the failure is the useful part.**
+`bootstrap_ruin` resamples whole sessions from the real log, which preserves
+clustering exactly and assumes nothing about the distribution. Run on the
+current account it returns **0.0% ruin and 100% pass at every position size**,
+including sizes the parametric model puts at coin-flip odds.
+
+That is not a discovery. The pool is seven sessions, six of them profitable,
+worst one -$435. Reaching a $3,000 floor requires roughly seven consecutive
+worst-sessions, probability 1.5e-06. **The resampled account is unkillable by
+construction.** Widen the pool to all seventeen sessions and it returns 100%
+ruin, because that pool contains the sessions that ended five real accounts.
+Two pools, two impossible answers, neither an estimate of anything.
+
+A bootstrap cannot draw a tail it has never seen. At small samples that is not
+a caveat, it is the entire output. `bootstrap_ruin` now refuses a pool under
+twenty sessions or one containing no losing session, because returning 0% in
+those cases is worse than returning nothing.
+
+**What this means for the sample-size problem.** The honest conclusion is that
+no amount of analysis closes the gap, because the gap is missing data rather
+than missing method. A record of six winning sessions out of seven is
+consistent with a strong edge and with a lucky fortnight, and no resampling,
+weighting or reparameterisation distinguishes them. What distinguishes them is
+a losing session traded under the current discipline — which is the one
+observation the record does not contain and the one that would settle it.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing

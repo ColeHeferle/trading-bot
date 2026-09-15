@@ -29,6 +29,7 @@ from .paper import FrozenRule, JournalEntry, PaperRun, Report, years_to_detect
 from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
 from .prop import (
     INSTRUMENTS,
+    bootstrap_ruin,
     PRESETS,
     DrawdownFloor,
     Instrument,
@@ -106,6 +107,7 @@ __all__ = [
     "TimeSeriesMomentum",
     "VolatilityTarget",
     "autocorrelation",
+    "bootstrap_ruin",
     "breakeven_win_rate",
     "check_freshness",
     "check_reconciled",

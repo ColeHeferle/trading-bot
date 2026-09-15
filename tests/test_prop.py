@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from trading_bot.prop import (
+    bootstrap_ruin,
     INSTRUMENTS,
     PRESETS,
     DrawdownFloor,
@@ -255,3 +256,52 @@ class TestPresets:
             assert acct.max_loss_limit > 0
             assert acct.profit_target and acct.profit_target > 0
             assert acct.max_micros >= acct.max_minis
+
+
+class TestBootstrapRuin:
+    """Resampling real sessions, and refusing to when the pool cannot support it."""
+
+    @staticmethod
+    def pool(n: int = 24, *, losers: int = 8) -> list[list[float]]:
+        winning = [[200.0, -120.0, 180.0] for _ in range(n - losers)]
+        losing = [[-300.0, -250.0, 100.0] for _ in range(losers)]
+        return winning + losing
+
+    def test_refuses_a_pool_too_small_to_resample(self):
+        with pytest.raises(ValueError, match="too few to resample"):
+            bootstrap_ruin(account(), self.pool(7, losers=2), trials=10)
+
+    def test_refuses_a_pool_with_no_losing_session(self):
+        """Six winners out of seven cannot reach the floor at any size, so the
+        answer would be 0% ruin by construction rather than by measurement."""
+        with pytest.raises(ValueError, match="no losing session"):
+            bootstrap_ruin(account(), self.pool(24, losers=0), trials=10)
+
+    def test_outcomes_partition(self):
+        est = bootstrap_ruin(account(), self.pool(), trials=2_000)
+        assert est.ruin + est.target + est.undecided == pytest.approx(1.0)
+
+    def test_scaling_down_reduces_ruin_for_a_winning_pool(self):
+        full = bootstrap_ruin(account(), self.pool(), scale=1.0, trials=4_000)
+        small = bootstrap_ruin(account(), self.pool(), scale=0.1, trials=4_000)
+        assert small.ruin <= full.ruin
+
+    def test_a_losing_pool_ruins(self):
+        est = bootstrap_ruin(account(), self.pool(24, losers=22), trials=4_000)
+        assert est.ruin > 0.9
+
+    def test_counts_sessions_not_trades(self):
+        est = bootstrap_ruin(account(), self.pool(), trials=4_000)
+        if est.median_trades_to_target is not None:
+            # 3 trades per session, so a trade count would be ~3x larger.
+            assert est.median_trades_to_target < 400
+
+    def test_is_reproducible_for_a_seed(self):
+        kwargs = dict(trials=2_000, seed=11)
+        assert bootstrap_ruin(account(), self.pool(), **kwargs) == bootstrap_ruin(
+            account(), self.pool(), **kwargs
+        )
+
+    def test_needs_a_target(self):
+        with pytest.raises(ValueError, match="no target"):
+            bootstrap_ruin(account(profit_target=None), self.pool(), trials=10)

@@ -40,6 +40,7 @@ __all__ = [
     "breakeven_win_rate",
     "ruin_probability",
     "max_risk_per_trade",
+    "bootstrap_ruin",
 ]
 
 
@@ -373,3 +374,106 @@ def max_risk_per_trade(
         else:
             hi = mid
     return lo
+
+
+def bootstrap_ruin(
+    account: PropAccount,
+    sessions: list[list[float]],
+    *,
+    scale: float = 1.0,
+    target_dollars: float | None = None,
+    give_back: float = 0.0,
+    max_sessions: int = 400,
+    min_sessions: int = 20,
+    trials: int = 20_000,
+    seed: int = 0,
+) -> RuinEstimate:
+    """Ruin estimated by resampling whole trading sessions from a real log.
+
+    `ruin_probability` draws each trade independently from a win rate and a
+    fixed reward:risk. Both assumptions flatter a real record. Trades are not
+    independent — a bad session is bad throughout — and real P&L is not two
+    values but a distribution with its own shape.
+
+    This resamples entire sessions with replacement, so whatever clustering
+    exists inside a session is carried over exactly, along with the real
+    spread of outcomes. Nothing is fitted and nothing is assumed; the only
+    model left is that sessions are exchangeable, which is far weaker than
+    assuming trades are.
+
+    `scale` multiplies every P&L, so 0.1 asks what the same sessions would
+    have done at one tenth the position size. It scales commission along with
+    everything else, which understates costs at micro size where fees do not
+    fall proportionally — read a scaled-down result as slightly optimistic.
+
+    `median_trades_to_target` counts *sessions* here, not trades.
+
+    **A bootstrap cannot draw a tail it has never seen**, and at small pool
+    sizes that is not a caveat but the whole result. Resampling seven sessions
+    of which six were profitable produces an account that cannot be killed, at
+    any position size, because no sequence of draws reaches the floor. Widen
+    the pool to include a period the trader blew up in and it becomes an
+    account that cannot survive. Both answers are artifacts of which sessions
+    went into the pool.
+
+    `min_sessions` guards the obvious version of this. It cannot guard the
+    subtler one: a pool large enough to resample can still be missing the bad
+    day that decides the question. Compare against `ruin_probability`, whose
+    parametric assumptions are wrong in a known direction, and distrust any
+    bootstrap that disagrees with it by more than it should.
+    """
+    target = target_dollars if target_dollars is not None else account.profit_target
+    if target is None:
+        raise ValueError("no target: pass target_dollars or give the account a profit_target")
+    if len(sessions) < min_sessions:
+        raise ValueError(
+            f"{len(sessions)} sessions is too few to resample: a pool this small "
+            f"cannot contain the losing tail that decides the answer, so the result "
+            f"would be determined by which sessions happen to be in it. Need "
+            f"{min_sessions}; pass min_sessions to override deliberately."
+        )
+    losing = sum(1 for s in sessions if sum(s) < 0)
+    if losing == 0:
+        raise ValueError(
+            "no losing session in the pool: resampling it can never reach the "
+            "drawdown floor, so ruin would come back 0% at every position size"
+        )
+
+    rng = random.Random(seed)
+    goal = account.starting_balance + target
+    ruined = hit = 0
+    counts: list[int] = []
+    room_used = 0.0
+
+    for _ in range(trials):
+        book = DrawdownFloor(account)
+        worst_room = book.room
+        for n in range(1, max_sessions + 1):
+            for pnl in rng.choice(sessions):
+                outcome = pnl * scale
+                if give_back and outcome < 0:
+                    book.mark(book.balance + abs(outcome) * give_back)
+                book.mark(book.balance + max(outcome, 0.0))
+                book.close_trade(outcome)
+                worst_room = min(worst_room, book.room)
+                if book.breached:
+                    break
+            book.close_day()
+            if book.breached:
+                ruined += 1
+                break
+            if book.balance >= goal:
+                hit += 1
+                counts.append(n)
+                break
+        room_used += account.max_loss_limit - max(worst_room, 0.0)
+
+    counts.sort()
+    return RuinEstimate(
+        ruin=ruined / trials,
+        target=hit / trials,
+        undecided=(trials - ruined - hit) / trials,
+        median_trades_to_target=counts[len(counts) // 2] if counts else None,
+        mean_peak_room_used=room_used / trials,
+        trials=trials,
+    )
