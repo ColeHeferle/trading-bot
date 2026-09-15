@@ -114,11 +114,15 @@ class PropAccount:
 # Published figures change without notice and differ by account generation.
 # These are a starting point to be overwritten with your own account's page,
 # not a source of truth. `research/prop_risk.py --help` says how to override.
+#
+# TPT100's drawdown and target were confirmed against a live account on
+# 2026-09-15. The rest remain inferred from published tables and the 6%
+# target, and the contract caps are inferred for every size including TPT100.
 PRESETS: dict[str, PropAccount] = {
     "TPT25": PropAccount("TPT25", 25_000, 1_500, 1_500, 3, 30),
     "TPT50": PropAccount("TPT50", 50_000, 2_000, 3_000, 6, 60),
     "TPT75": PropAccount("TPT75", 75_000, 2_500, 4_500, 9, 90),
-    "TPT100": PropAccount("TPT100", 100_000, 3_000, 6_000, 12, 120),
+    "TPT100": PropAccount("TPT100", 100_000, 3_000, 6_000, 12, 120),  # confirmed
     "TPT150": PropAccount("TPT150", 150_000, 4_500, 9_000, 18, 180),
 }
 

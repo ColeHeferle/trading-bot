@@ -649,6 +649,42 @@ repeating a $2,000 run and resetting. Probability of surviving N cycles:
 A year of monthly payouts is twelve cycles. At $300 risk on a real 40%/2:1
 edge, the account survives that year **9.4%** of the time.
 
+## The ruin surface is a cliff, not a slope
+
+Account spec confirmed against a live account on 2026-09-15: $3,000 limit,
+$6,000 target, intraday trail. Ruin at 1.5:1 reward:risk with MES round-turn
+costs charged, 25,000 paths per cell:
+
+| risk/trade | losses to fail | 35% | 40% | 45% | 50% | 55% |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| $100 | 30 | 100.0% | 96.6% | 13.9% | **0.2%** | 0.0% |
+| $150 | 20 | 100.0% | 94.8% | 29.8% | 2.3% | 0.1% |
+| $200 | 15 | 99.9% | 92.7% | 41.1% | 7.1% | 0.9% |
+| $300 | 10 | 99.2% | 89.5% | 53.7% | 19.9% | 5.4% |
+| $500 | 6 | 96.7% | 85.9% | 63.5% | 37.9% | 18.8% |
+| $750 | 4 | 93.4% | 83.2% | 67.8% | 49.3% | 32.4% |
+
+Breakeven after costs is **41.6%**, and the table divides on it:
+
+**Below breakeven, sizing is irrelevant.** The 35% and 40% columns are lost
+at every size, and ruin *falls* as risk rises — 100% down to 93.4%. There is
+no risk management that rescues a negative edge, only a slower or faster
+arrival.
+
+**Above breakeven, sizing is the entire result.** At 45% — barely three
+points clear of breakeven — ruin runs from 13.9% to 67.8% purely on position
+size. Same edge, same market, a five-fold difference in survival decided by
+one number the trader chooses.
+
+The practical consequence is that the interesting quantity is not "does the
+strategy work". It is the distance between the measured win rate and 41.6%,
+and that distance is unknowable until enough trades exist to estimate it.
+Thirty trades give a standard error of about 9 percentage points on a win
+rate near 45%, which is wider than the entire distance from breakeven to
+comfortable. **A trader cannot locate their own column on this table until
+well past a hundred trades**, and until then the only defensible position is
+the top row.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing

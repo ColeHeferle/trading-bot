@@ -96,6 +96,23 @@ def main() -> int:
                       f"{est.ruin:>9.1%}{est.target:>9.1%}{est.undecided:>11.1%}{median:>10}")
         print()
 
+    print("## Ruin surface: risk against win rate, at 1.5:1 after costs")
+    print("The number that decides everything is the win rate, and it is the")
+    print("one you have not measured.\n")
+    mes = INSTRUMENTS["MES"]
+    rates = (0.35, 0.40, 0.45, 0.50, 0.55)
+    print(f"{'risk':>8}{'losses':>8}" + "".join(f"{r:>9.0%}" for r in rates))
+    for risk in (100.0, 150.0, 200.0, 300.0, 500.0, 750.0):
+        cost = mes.round_turn_cost * (risk / mes.ticks_to_dollars(20))
+        cells = "".join(
+            f"{ruin_probability(account, risk, wr, 1.5, give_back=0.5, cost_dollars=cost, trials=args.trials, max_trades=1500).ruin:>9.1%}"
+            for wr in rates
+        )
+        print(f"${risk:>7,.0f}{account.max_loss_limit / risk:>8.0f}{cells}")
+    mes_cost = mes.round_turn_cost / mes.ticks_to_dollars(20)
+    print(f"\nBreakeven win rate at 1.5:1 after MES costs: "
+          f"{breakeven_win_rate(1.5, mes_cost):.1%}\n")
+
     print("## Largest risk per trade holding ruin under 10%")
     print(f"{'win rate':<10}{'R:R':>6}{'expectancy':>12}{'give_back=0':>14}{'give_back=0.5':>15}")
     for win_rate, rr in ((0.40, 2.0), (0.50, 1.5), (0.55, 1.0), (0.65, 1.0), (0.70, 1.0)):
