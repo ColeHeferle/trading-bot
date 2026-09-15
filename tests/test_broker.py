@@ -393,3 +393,77 @@ class TestLatestPrice:
         })
         with pytest.raises(BrokerError, match="latest price for SPY was 0"):
             api.latest_price("SPY")
+
+
+class TestWhatA401Says:
+    """A rejected credential and a wrong one look identical from the response.
+
+    Alpaca answers `{"message": "unauthorized."}` either way, which is true and
+    useless — it cost a round trip of guessing. The transport holds the key id
+    and the endpoint, so two of the three usual causes are checkable rather
+    than guessable, and it should say which one it found.
+    """
+
+    def transport(self, key="PKTEST", secret="s", url=PAPER_URL):
+        return __import__(
+            "trading_bot.broker", fromlist=["HttpTransport"]
+        ).HttpTransport(url, key, secret)
+
+    def reject(self, monkeypatch, transport, code=401):
+        """Make urlopen raise the HTTPError Alpaca would return."""
+        import io
+        import urllib.error
+        import urllib.request
+
+        def urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(
+                request.full_url, code, "Unauthorized", {},
+                io.BytesIO(b'{"message": "unauthorized."}'),
+            )
+
+        monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+        with pytest.raises(BrokerError) as caught:
+            transport.request("GET", "/v2/positions")
+        return str(caught.value)
+
+    def test_a_live_key_against_paper_is_named_as_such(self, monkeypatch):
+        """The single most diagnostic character: PK for paper, AK for live."""
+        message = self.reject(monkeypatch, self.transport(key="AKLIVE123"))
+        assert "401" in message and "unauthorized." in message
+        assert "'AK'" in message and "'PK'" in message
+        assert "Paper Trading" in message
+
+    def test_whitespace_is_named_ahead_of_everything_else(self, monkeypatch):
+        """It survives a save, is invisible on screen, and always 401s."""
+        message = self.reject(monkeypatch, self.transport(key="PKTEST ", secret="s"))
+        assert "whitespace" in message
+        message = self.reject(monkeypatch, self.transport(key="PKTEST", secret=" s"))
+        assert "whitespace" in message
+
+    def test_a_plausible_key_points_at_the_mismatched_pair(self, monkeypatch):
+        """Nothing checkable is wrong, so say the thing that usually is."""
+        message = self.reject(monkeypatch, self.transport())
+        assert "same generation" in message
+        assert "whitespace" not in message and "'PK'" not in message
+
+    def test_the_paper_prefix_rule_is_not_applied_to_the_data_host(
+        self, monkeypatch
+    ):
+        """Market data takes the same keys on a different host."""
+        from trading_bot.broker import DATA_URL
+
+        message = self.reject(
+            monkeypatch, self.transport(key="AKLIVE123", url=DATA_URL)
+        )
+        assert "'PK'" not in message
+
+    def test_other_statuses_are_left_alone(self, monkeypatch):
+        """A 404 means a wrong path, and credential advice would mislead."""
+        message = self.reject(monkeypatch, self.transport(), code=404)
+        assert "404" in message
+        assert "whitespace" not in message and "same generation" not in message
+
+    def test_a_newline_is_refused_before_it_is_sent(self):
+        """urllib rejects such a header, which was a bare traceback before."""
+        with pytest.raises(BrokerError, match="newline"):
+            self.transport(key="PKTEST\n").request("GET", "/v2/account")
