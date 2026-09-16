@@ -933,6 +933,63 @@ to trade larger, and that is the decision a good run makes tempting and a bad
 run makes urgent. A threshold agreed in advance and re-examined in the moment
 is not a threshold. This one is a process exit code.
 
+## Income is a purchasing decision, not a trading one (2026-09-16)
+
+The earlier conclusion — that a $3,000 buffer produces about $564 a month and
+no signal changes it — was correct about the account and wrong about the
+constraint. Scale the drawdown, the per-trade risk and the payout target
+together by the same factor and every survival figure is unchanged:
+
+| k | drawdown | risk/trade | payout | ruin/cycle | survives 12 cycles | income/mo |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1.0 | $3,000 | $67 | $2,000 | 2.3% | 75.7% | $565 |
+| 1.5 | $4,500 | $101 | $3,000 | 2.3% | 75.7% | $847 |
+| 3.0 | $9,000 | $202 | $6,000 | 2.3% | 75.7% | $1,694 |
+| 7.5 | $22,500 | $506 | $15,000 | 2.3% | 75.7% | $4,235 |
+
+Ruin is invariant to four significant figures because nothing about the
+problem changes — the floor, the position and the target all move together, so
+the same paths breach and the same paths finish. **Income is linear in
+deployed drawdown at fixed survival.** The ceiling is therefore set by how
+much drawdown can be bought, which is a purchasing decision, and the earlier
+figure was the answer for one account rather than a law about the strategy.
+
+TPT150 carries $4,500 against a $9,000 target for $360 a month, and up to five
+funded accounts may run simultaneously with a trader copying their own trades
+across them. That caps deployable drawdown at $22,500 and income near $4,200 a
+month at the same 75.7% annual survival.
+
+**Funded accounts carry no monthly fee** — a one-time $130 activation — so the
+recurring cost applies only while evaluating. That changes which route is
+cheaper.
+
+| route | to first income | income reached | cumulative at month 15 |
+| --- | ---: | --- | ---: |
+| five evaluations in parallel | $8,390 | $4,235/mo immediately | — |
+| one evaluation, add from income | $1,678 | $2,541/mo by month 15 | +$6,915 |
+
+The ramp is cash-positive by month 10 and reaches the parallel route's
+drawdown without ever risking $8,390 on an edge measured over 52 trades.
+
+## What correlated accounts actually buy
+
+Five accounts copy-traded from one signal are not five independent bets. Their
+equity curves are proportional, so their floors are proportional, and they
+breach on the same trade. Combined survival equals single-account survival —
+which is why income scales without survival falling, and is also the whole
+risk:
+
+```
+annual survival of the operation       75.7%
+probability of losing all five         24.3%
+capital lost in that event             $22,500 of drawdown
+```
+
+Independent accounts would lose roughly one in five. Correlated accounts lose
+five of five. The scaling result and the concentration risk are the same fact
+seen from two sides, and any account of the upside that omits the second half
+is selling something.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
