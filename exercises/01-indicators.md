@@ -59,9 +59,14 @@ happens to satisfy `test_indicators.py` can still be caught here.
 ## Then, and only then
 
 ```bash
-git diff HEAD -- src/trading_bot/indicators.py        # yours vs. the original
-git show HEAD:src/trading_bot/indicators.py           # the original alone
+git show b698645~1:src/trading_bot/indicators.py      # the original
+git show b698645~1:src/trading_bot/indicators.py > /tmp/original.py
+diff -u /tmp/original.py src/trading_bot/indicators.py
 ```
+
+`b698645` is the commit that stubbed the module, so `b698645~1` is the last
+commit that still had the implementation. That reference stays correct no
+matter how many commits you add on top.
 
 For every line that differs, decide which version is better and why. Write the
 answer down. Sometimes yours will be better — the original is not a model
