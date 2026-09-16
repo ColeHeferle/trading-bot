@@ -21,6 +21,11 @@ suite are untouched.
 pip install -e ".[dev]"
 ```
 
+This module is already stubbed. `python exercises/stub.py --list` shows the
+state of every exercise, and `python exercises/stub.py --restore indicators`
+puts the original back if you want out — commit your attempt first, because
+restore overwrites the file.
+
 ## The loop
 
 ```bash
@@ -93,7 +98,11 @@ backtesting engine." If you cannot answer them, you have not finished.
 
 ## Next
 
-`exercises/02-portfolio.md` does not exist yet. When you finish this one, the
-same treatment applies to `src/trading_bot/portfolio.py` against
-`tests/test_portfolio.py` (166 lines), then `sizing`, `backtest`, and
-`broker` last — `tests/test_broker.py` is 469 lines and is a week, not a day.
+[`exercises/02-portfolio.md`](02-portfolio.md), activated with
+`python exercises/stub.py portfolio` once this one is green. Be warned that it
+craters 138 tests rather than 20 — `Portfolio` is the ledger the backtest
+loop, the paper runner and the sizers all write through. The brief explains
+how to work it without drowning in the noise.
+
+After that: `sizing` (03), `backtest` (04), and `broker` (05) last.
+`tests/test_broker.py` is 469 lines and is a week, not a day.
