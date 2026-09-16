@@ -30,6 +30,7 @@ from .portfolio import InsufficientFunds, InsufficientPosition, Portfolio
 from .prop import (
     INSTRUMENTS,
     bootstrap_ruin,
+    edge_from_log,
     PRESETS,
     DrawdownFloor,
     Instrument,
@@ -114,6 +115,7 @@ __all__ = [
     "client_order_id",
     "contracts_for_risk",
     "deflated_sharpe",
+    "edge_from_log",
     "ema",
     "expectancy",
     "expected_max_sharpe",

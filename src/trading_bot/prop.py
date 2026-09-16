@@ -26,6 +26,7 @@ own account page before it is trusted — see `PRESETS`' docstring.
 from __future__ import annotations
 
 import random
+import statistics
 from dataclasses import dataclass, field
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
     "ruin_probability",
     "max_risk_per_trade",
     "bootstrap_ruin",
+    "edge_from_log",
 ]
 
 
@@ -478,3 +480,54 @@ def bootstrap_ruin(
         mean_peak_room_used=room_used / trials,
         trials=trials,
     )
+
+
+def edge_from_log(pnls: list[float], *, tail_at: float = 2.0) -> dict[str, float]:
+    """Derive `ruin_probability`'s parameters from realized trade P&L.
+
+    Getting this wrong is easy and silent. The obvious reading — average every
+    loss, then apply a tail multiplier on top — counts the oversized losses
+    twice, because they are already inside that average. It understates the
+    edge, and it does so by an amount that grows with the tail, so the worse
+    the tail the more the error flatters it.
+
+    The unit of risk R is the *ordinary* loss: the mean of losses below
+    `tail_at` multiples of the overall average. The tail is then measured
+    against that baseline rather than against itself.
+
+    `check` is the reconciliation: the modelled per-trade expectancy minus the
+    realized one. It should be zero to rounding. Treat a non-zero value as a
+    bug in the parameterisation rather than a property of the trader.
+    """
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    if not wins or not losses:
+        raise ValueError("need both wins and losses to describe an edge")
+
+    gross = abs(statistics.mean(losses))
+    ordinary = [l for l in losses if abs(l) < tail_at * gross]
+    oversized = [l for l in losses if abs(l) >= tail_at * gross]
+    if not ordinary:
+        raise ValueError("every loss is oversized; no baseline risk to measure against")
+
+    risk = abs(statistics.mean(ordinary))
+    win_rate = len(wins) / len(pnls)
+    reward_risk = statistics.mean(wins) / risk
+    tail_rate = len(oversized) / len(losses)
+    tail_multiple = (
+        statistics.mean([abs(l) for l in oversized]) / risk if oversized else 1.0
+    )
+
+    modelled = (
+        win_rate * reward_risk * risk
+        - (1 - win_rate) * ((1 - tail_rate) + tail_rate * tail_multiple) * risk
+    )
+    return {
+        "win_rate": win_rate,
+        "reward_risk": reward_risk,
+        "risk": risk,
+        "tail_rate": tail_rate,
+        "tail_multiple": tail_multiple,
+        "expectancy": modelled,
+        "check": modelled - sum(pnls) / len(pnls),
+    }

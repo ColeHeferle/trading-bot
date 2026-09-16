@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+import statistics
+
 from trading_bot.prop import (
     bootstrap_ruin,
+    edge_from_log,
     INSTRUMENTS,
     PRESETS,
     DrawdownFloor,
@@ -305,3 +308,52 @@ class TestBootstrapRuin:
     def test_needs_a_target(self):
         with pytest.raises(ValueError, match="no target"):
             bootstrap_ruin(account(profit_target=None), self.pool(), trials=10)
+
+
+class TestEdgeFromLog:
+    """Deriving model parameters from realized P&L without double-counting."""
+
+    def test_reconciles_with_realized_expectancy(self):
+        pnls = [200.0, 300.0, -100.0, -120.0, 250.0, -900.0, 180.0, -110.0]
+        edge = edge_from_log(pnls)
+        assert edge["check"] == pytest.approx(0.0, abs=1e-9)
+        assert edge["expectancy"] == pytest.approx(sum(pnls) / len(pnls))
+
+    def test_the_baseline_risk_excludes_the_tail(self):
+        """R is the ordinary loss. Averaging the oversized ones into it, and
+        then applying a tail on top, counts them twice."""
+        pnls = [200.0] * 8 + [-100.0] * 3 + [-1000.0]
+        edge = edge_from_log(pnls)
+        assert edge["risk"] == pytest.approx(100.0)
+        assert edge["tail_multiple"] == pytest.approx(10.0)
+
+    def test_double_counting_understates_the_edge(self):
+        """The naive parameterisation is not merely different, it is biased
+        against the trader, and the bias grows with the tail."""
+        pnls = [200.0] * 8 + [-100.0] * 3 + [-1000.0]
+        edge = edge_from_log(pnls)
+        losses = [p for p in pnls if p < 0]
+        naive_risk = abs(statistics.mean(losses))
+        wins = [p for p in pnls if p > 0]
+        naive = (
+            edge["win_rate"] * (statistics.mean(wins) / naive_risk) * naive_risk
+            - (1 - edge["win_rate"])
+            * ((1 - edge["tail_rate"]) + edge["tail_rate"] * edge["tail_multiple"])
+            * naive_risk
+        )
+        assert naive < edge["expectancy"]
+
+    def test_a_log_with_no_tail_has_multiple_one(self):
+        pnls = [200.0] * 6 + [-100.0, -105.0, -95.0]
+        edge = edge_from_log(pnls)
+        assert edge["tail_rate"] == 0.0
+        assert edge["tail_multiple"] == pytest.approx(1.0)
+        assert edge["check"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_needs_both_wins_and_losses(self):
+        with pytest.raises(ValueError, match="both wins and losses"):
+            edge_from_log([100.0, 200.0])
+
+    def test_refuses_when_every_loss_is_oversized(self):
+        with pytest.raises(ValueError, match="no baseline risk"):
+            edge_from_log([100.0, -50.0, -50.0], tail_at=0.5)

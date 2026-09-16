@@ -990,6 +990,81 @@ five of five. The scaling result and the concentration risk are the same fact
 seen from two sides, and any account of the upside that omits the second half
 is selling something.
 
+## Correction: the tail was being counted twice (2026-09-16)
+
+Every figure in the two sections above understated the edge by about 30%,
+from a parameterisation error rather than a data problem.
+
+`ruin_probability` takes a unit of risk R and a tail expressed as a multiple
+of it. The parameters were built by averaging **every** loss to get R and then
+applying a tail multiplier on top — but the oversized losses are already
+inside that average, so they were charged twice. The error is silent, it
+always runs against the trader, and it grows with the tail.
+
+The test that catches it is reconciliation against realized P&L:
+
+| parameterisation | modelled expectancy | realized | error |
+| --- | ---: | ---: | ---: |
+| average all losses, then add a tail | $53.61/trade | $76.62 | **-30%** |
+| baseline excludes the tail | $76.62/trade | $76.62 | 0.00 |
+
+`edge_from_log` now derives the parameters correctly and returns a `check`
+field that must be zero. R is the *ordinary* loss — $284.87 here, not $336.87
+— and reward:risk against that baseline is 1.613, not 1.364.
+
+Corrected, a $6,000 target is reachable inside a month, which the earlier
+figures said took four:
+
+| size | risk | $/trade | sessions to target | pass | eval ruin | funded 12-cycle survival |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 12 MNQ | $71 | $13 | 82.4 | 0.0% | 0.5% | **96.3%** |
+| 25 MNQ | $142 | $27 | 41.2 | 11.5% | 9.5% | 51.5% |
+| 37 MNQ | $214 | $40 | 27.5 | 41.8% | 22.6% | 20.1% |
+| 5 NQ | $285 | $54 | **20.6** | 56.5% | 32.8% | **8.9%** |
+
+Only the bottom row finishes inside a month, and only the top row survives
+being funded. There is no size that does both, and the gap between them is
+fourfold.
+
+## Pace cannot substitute for size
+
+If speed came from trading more per session rather than larger, the conflict
+would dissolve: ruin is set by size alone, so 12 MNQ at twenty trades a
+session would pass in a month at 0.5% ruin and 96.3% funded survival.
+
+The log says it does not work. Splitting seventeen sessions by trade count:
+
+| | sessions | trades | per-trade result | win rate |
+| --- | ---: | ---: | ---: | ---: |
+| 7 or fewer trades | 14 | 39 | -$98.78 | 59.0% |
+| more than 7 trades | 3 | 53 | -$43.98 | 49.1% |
+
+Win rate drops ten points and the per-trade edge falls 55% once the session
+goes past a handful of trades. The single 35-trade session earned $14.83 a
+trade against a $76.62 average. An edge measured on a few selective entries in
+a ten-minute window is not the same edge at five times the frequency, and the
+data already shows it degrading.
+
+## The finding that matters more than either
+
+The current account's $3,984 is not distributed across 52 trades:
+
+```
+top  1 trade  of 52      $1,352    34% of net profit
+top  3 trades of 52      $3,758    94% of net profit
+the other 42 trades     -$4,791
+```
+
+**Three trades carry the entire result.** Forty-two of the remaining forty-nine
+lose money together. The 51.9% win rate and 1.613 reward:risk are real
+arithmetic on that record, and they describe three outcomes rather than a
+process.
+
+This is what the t-statistic of 1.39 was already saying, and concentration
+puts it more plainly than a t-statistic does. The effective sample is not 52.
+No position size, account size, pace or deadline changes what is being sized —
+and a plan to deploy it faster is a plan to find out sooner.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing
