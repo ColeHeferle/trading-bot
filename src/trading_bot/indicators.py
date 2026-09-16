@@ -1,10 +1,11 @@
+# STUBBED-FROM: 4e80a037ed718d025cd0fdf77672a13f3d0b9257
+# EXERCISE 01: rewrite this module from tests/test_indicators.py.
+# Brief: exercises/01-indicators.md   Restore: python exercises/stub.py --restore indicators
 """Rolling indicators.
 
 Each function returns a list the same length as its input so results stay
 aligned with the candle series; leading entries are ``None`` until enough
 history has accumulated.
-
-EXERCISE: the bodies below are yours to write. See exercises/01-indicators.md.
 """
 
 from __future__ import annotations
