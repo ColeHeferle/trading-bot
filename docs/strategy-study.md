@@ -1065,6 +1065,57 @@ puts it more plainly than a t-statistic does. The effective sample is not 52.
 No position size, account size, pace or deadline changes what is being sized —
 and a plan to deploy it faster is a plan to find out sooner.
 
+## Correction: "effective sample of three" was wrong
+
+The concentration figure above — three trades carrying 94% of net profit — is
+correct, and the inference drawn from it was not. It was read as an effective
+sample near three, which overstates the problem considerably.
+
+Kish's effective sample size, from the absolute P&L weights, is **30.5 against
+a nominal 52**. That is meaningfully below 52 and nowhere near 3. A concentrated
+record carries less information than its trade count implies; it does not carry
+only as much as its largest trades.
+
+Removing the best trades one at a time says the same thing more directly:
+
+| | trades | expectancy |
+| --- | ---: | ---: |
+| as traded | 52 | $76.62 |
+| less the best trade | 51 | $51.60 |
+| less the best two | 50 | $28.08 |
+| less the best three | 49 | **$4.62** |
+
+Still profitable without its three best trades, which a record genuinely
+carried by three trades would not be. Thin, not hollow.
+
+## What the record actually supports
+
+Resampling trades to bound the uncertainty of a mean is what the bootstrap is
+for, and it works here where `bootstrap_ruin` did not: this needs the sample to
+represent its own sampling distribution, not to contain a tail it never saw.
+100,000 resamples of the 52 trades:
+
+```
+observed expectancy       $76.62/trade
+95% interval              -$62.25  to  +$218.32
+P(true edge > 0)          85.9%
+P(edge > $40/trade)       69.3%
+```
+
+The interval is enormous and it crosses zero. But 85.9% is not the verdict
+"unproven" that a t-statistic of 1.39 reads like against a 95% convention — it
+is a probability, and it favours the edge being real. The $40 threshold is what
+a one-month pass at 5 NQ requires, and the record supports it at 69.3%.
+
+So the honest statement is neither "established" nor "three lucky trades". It
+is: **probably a real edge, of a size the data cannot pin down within a factor
+of three.** `expectancy_interval` computes this for any log.
+
+The gate gains three criteria from it — top-three share at or under 60%,
+profitability surviving the loss of the best three trades, and an effective
+sample of at least 80. The current record passes the second and fails the other
+two, which is a fairer description than any single number.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing

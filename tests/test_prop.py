@@ -9,6 +9,7 @@ import statistics
 from trading_bot.prop import (
     bootstrap_ruin,
     edge_from_log,
+    expectancy_interval,
     INSTRUMENTS,
     PRESETS,
     DrawdownFloor,
@@ -357,3 +358,47 @@ class TestEdgeFromLog:
     def test_refuses_when_every_loss_is_oversized(self):
         with pytest.raises(ValueError, match="no baseline risk"):
             edge_from_log([100.0, -50.0, -50.0], tail_at=0.5)
+
+
+class TestExpectancyInterval:
+    """Bounding a mean by resampling, which the sample can actually support."""
+
+    def test_brackets_the_observed_expectancy(self):
+        pnls = [200.0, -100.0, 300.0, -120.0, 150.0, -90.0, 250.0, -110.0]
+        result = expectancy_interval(pnls, trials=5_000)
+        assert result["low"] < result["expectancy"] < result["high"]
+
+    def test_a_concentrated_record_has_a_low_effective_n(self):
+        """One trade carrying the result leaves far fewer effective
+        observations than the nominal count suggests."""
+        spread = expectancy_interval([100.0, -100.0] * 25, trials=2_000)
+        concentrated = expectancy_interval([5000.0] + [10.0, -10.0] * 24 + [10.0], trials=2_000)
+        assert spread["effective_n"] > 45
+        assert concentrated["effective_n"] < 10
+        assert spread["nominal_n"] == concentrated["nominal_n"]
+
+    def test_thresholds_report_the_fraction_above_each(self):
+        pnls = [200.0, -100.0, 300.0, -120.0, 150.0, -90.0, 250.0, -110.0]
+        result = expectancy_interval(pnls, thresholds=(0.0, 1e9), trials=4_000)
+        assert result["above"][0.0] > 0.5
+        assert result["above"][1e9] == 0.0
+
+    def test_a_wider_confidence_gives_a_wider_interval(self):
+        pnls = [200.0, -100.0, 300.0, -120.0, 150.0, -90.0, 250.0, -110.0]
+        narrow = expectancy_interval(pnls, confidence=0.50, trials=8_000)
+        wide = expectancy_interval(pnls, confidence=0.99, trials=8_000)
+        assert wide["high"] - wide["low"] > narrow["high"] - narrow["low"]
+
+    def test_is_reproducible_for_a_seed(self):
+        pnls = [200.0, -100.0, 300.0, -120.0]
+        assert expectancy_interval(pnls, trials=2_000, seed=5) == expectancy_interval(
+            pnls, trials=2_000, seed=5
+        )
+
+    def test_rejects_a_degenerate_sample(self):
+        with pytest.raises(ValueError, match="at least two trades"):
+            expectancy_interval([100.0])
+
+    def test_rejects_an_impossible_confidence(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            expectancy_interval([100.0, -50.0], confidence=1.5)

@@ -79,6 +79,13 @@ def gate(rows: list[dict]) -> int:
         if after_win and after_loss else 0.0
     )
 
+    ranked = sorted(pnl, reverse=True)
+    net = sum(pnl)
+    top3 = sum(ranked[:3])
+    without_top3 = sum(ranked[3:]) / max(1, len(ranked) - 3)
+    weights = [abs(p) for p in pnl]
+    effective_n = (sum(weights) ** 2 / sum(w * w for w in weights)) if weights else 0.0
+
     by_day: dict[str, float] = defaultdict(float)
     for row in rows:
         by_day[row["entryDate"][:10]] += row["pnl"]
@@ -93,6 +100,13 @@ def gate(rows: list[dict]) -> int:
          "need <= 2.78x, the level already achieved"),
         ("no size escalation", escalation <= 0.0, f"{escalation:+.2f} contracts after a loss",
          "need <= 0.00"),
+        ("not carried by a few", net <= 0 or top3 / net <= 0.60,
+         f"top 3 trades are {top3 / net:.0%} of net" if net > 0 else "net is not positive",
+         "need <= 60%"),
+        ("survives losing best 3", without_top3 > 0,
+         f"${without_top3:,.2f}/trade without them", "need > $0"),
+        ("effective sample", effective_n >= 80,
+         f"{effective_n:.1f} of {len(rows)} nominal", "need 80 by Kish weighting"),
         ("sessions", len(by_day) >= 20, f"{len(by_day)} sessions",
          "need 20 before a bootstrap means anything"),
         ("a losing session exists", losing_sessions >= 1, f"{losing_sessions} losing sessions",
@@ -101,7 +115,7 @@ def gate(rows: list[dict]) -> int:
 
     print(f"## Phase 1 gate — {len(rows)} trades over {len(by_day)} sessions\n")
     for name, ok, actual, requirement in checks:
-        print(f"  [{'PASS' if ok else 'FAIL'}]  {name:<24}{actual:<32}{requirement}")
+        print(f"  [{'PASS' if ok else 'FAIL'}]  {name:<28}{actual:<34}{requirement}")
     failed = [name for name, ok, *_ in checks if not ok]
     if failed:
         print(f"\n  GATE CLOSED — {len(failed)} of {len(checks)} criteria unmet: "
@@ -177,6 +191,13 @@ def main() -> int:
               "\n  changes when the previous one ended. Read the breaches above as the reason.")
 
     print("\n## Consistency: no session may be half of total profit\n")
+    ranked = sorted(pnl, reverse=True)
+    net = sum(pnl)
+    top3 = sum(ranked[:3])
+    without_top3 = sum(ranked[3:]) / max(1, len(ranked) - 3)
+    weights = [abs(p) for p in pnl]
+    effective_n = (sum(weights) ** 2 / sum(w * w for w in weights)) if weights else 0.0
+
     by_day: dict[str, float] = defaultdict(float)
     for row in rows:
         by_day[row["entryDate"][:10]] += row["pnl"]

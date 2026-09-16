@@ -43,6 +43,7 @@ __all__ = [
     "max_risk_per_trade",
     "bootstrap_ruin",
     "edge_from_log",
+    "expectancy_interval",
 ]
 
 
@@ -530,4 +531,55 @@ def edge_from_log(pnls: list[float], *, tail_at: float = 2.0) -> dict[str, float
         "tail_multiple": tail_multiple,
         "expectancy": modelled,
         "check": modelled - sum(pnls) / len(pnls),
+    }
+
+
+def expectancy_interval(
+    pnls: list[float],
+    *,
+    confidence: float = 0.95,
+    thresholds: tuple[float, ...] = (0.0,),
+    trials: int = 100_000,
+    seed: int = 0,
+) -> dict[str, float]:
+    """Bootstrap confidence interval for per-trade expectancy.
+
+    Resampling trades to bound the uncertainty of a mean is what the bootstrap
+    is actually for, and it works where `bootstrap_ruin` did not. That function
+    needed the sample to contain a losing tail it had never observed; this one
+    only needs the sample to represent its own sampling distribution.
+
+    `effective_n` is Kish's effective sample size from the absolute P&L
+    weights: how many equally-sized trades carry the information this
+    unequally-sized set does. A record whose profit sits in a few trades has an
+    effective n well below its nominal one, and a t-statistic computed from the
+    nominal count is correspondingly overconfident.
+
+    `above` maps each threshold to the fraction of resamples exceeding it.
+    Threshold 0.0 answers "is there an edge at all"; a threshold set to the
+    expectancy a plan requires answers the more useful question of whether the
+    record supports *that* plan.
+    """
+    if len(pnls) < 2:
+        raise ValueError("need at least two trades")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be between 0 and 1")
+
+    rng = random.Random(seed)
+    n = len(pnls)
+    means = sorted(sum(rng.choice(pnls) for _ in range(n)) / n for _ in range(trials))
+    margin = (1.0 - confidence) / 2.0
+    weights = [abs(p) for p in pnls]
+    total = sum(weights)
+
+    return {
+        "expectancy": sum(pnls) / n,
+        "low": means[int(margin * trials)],
+        "high": means[int((1.0 - margin) * trials)],
+        "effective_n": (total * total / sum(w * w for w in weights)) if total else 0.0,
+        "nominal_n": float(n),
+        "above": {
+            threshold: sum(1 for m in means if m > threshold) / trials
+            for threshold in thresholds
+        },
     }
