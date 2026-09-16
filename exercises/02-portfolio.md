@@ -139,6 +139,7 @@ own work.)
 
 ## Next
 
-`python exercises/stub.py --list` shows what is left: `sizing` (03),
-`backtest` (04), then `broker` (05). Do them in that order — `broker` last,
-and give it a week rather than a day.
+[`exercises/03-sizing.md`](03-sizing.md), then
+[`04-backtest.md`](04-backtest.md) and [`05-broker.md`](05-broker.md).
+Do them in that order; [`exercises/README.md`](README.md) has the table.
+`broker` is last and is a week rather than a day.
