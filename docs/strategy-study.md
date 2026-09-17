@@ -547,3 +547,583 @@ variants. It does not survive either.
 
 The horizon is the problem, not the index. Nothing at daily frequency on these
 markets offers an edge larger than the cost of trading it.
+
+---
+
+# A funded prop account is a different problem (2026-09-15)
+
+Everything above measures strategies against buy-and-hold on daily bars over
+decades. None of it transfers to a funded futures account, and it is worth
+being precise about why rather than assuming the sizing ideas carry over.
+
+Reproduce with `python research/prop_risk.py`.
+
+## The constraint that replaces every other constraint
+
+A brokerage account dies when it runs out of money. A funded account dies when
+equity touches a floor that trails the *peak* — and on an intraday-trailed
+account that peak is marked on unrealized equity. A trade that runs $800 your
+way and comes back to breakeven earns nothing and costs $800 of room.
+
+`trading_bot.prop.DrawdownFloor` is that state machine. The floor stops rising
+once it reaches the starting balance, so the account gets safer as it profits
+and is at its most fragile on day one.
+
+On a $100,000 account with a $3,000 limit, the loss budget is **3% of
+notional**. The best configuration measured anywhere in this repo — Nasdaq
+`SmaCrossover(10, 50)` at a 25% volatility target — has a 30.3% maximum
+drawdown. Run against this ruleset it fails the account roughly ten times
+over. That is not a tuning problem. Daily-bar trend following and a 3%
+trailing floor are incompatible at any parameterization.
+
+## Ruin is the governing number, and it is worse than gambler's ruin
+
+Classical gambler's ruin on a *fixed* floor puts a driftless walk's failure
+odds at `target / (target + room)` — 6000/9000 = **66.7%** here. Measured
+against a trailing floor the same coin flip ruins **81.1%** of the time. The
+14-point gap is what the trail costs a trader with no edge, and it is charged
+before any commission.
+
+Add costs and it is settled. 20,000 paths, $6,000 target, MES round-turn fees:
+
+| risk/trade | win | R:R | ruin | reached target |
+| ---: | ---: | ---: | ---: | ---: |
+| $100 | 50% | 1.0 | **92.0%** | 0.3% |
+| $200 | 50% | 1.0 | **95.6%** | 4.2% |
+| $300 | 50% | 1.0 | **92.4%** | 7.6% |
+| $500 | 50% | 1.0 | **88.4%** | 11.6% |
+
+Note the direction: with no edge, ruin *falls* as risk rises. That is correct
+and it is a warning, not a tactic. In an unfavourable game the only route to a
+target is to arrive before costs grind you down, which is why bold play is
+optimal when the edge is negative. **If sizing up ever looks like it improves
+your odds, that is evidence the edge is zero.**
+
+## With a real edge, the numbers are survivable and still not comfortable
+
+Same account, no costs, assuming the stated edge is real and stationary:
+
+| risk/trade | win | R:R | expectancy | ruin | median trades to target |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| $200 | 40% | 2.0 | 0.20R | 17.6% | 114 |
+| $200 | 50% | 1.5 | 0.25R | **3.6%** | 107 |
+| $500 | 40% | 2.0 | 0.20R | **49.2%** | 24 |
+| $500 | 55% | 1.0 | 0.10R | **50.8%** | 50 |
+
+$500 is one sixth of the drawdown — a size most would call conservative — and
+a genuinely profitable 40%/2:1 system fails the account on a coin flip.
+
+The 55%/1:1 row is the instructive one. A higher win rate ruins *more* often
+than the 40% system, because thinner expectancy needs twice as many trades and
+every trade is another draw against the floor. **Time in the account is a risk
+exposure, not a neutral backdrop.**
+
+## Instrument choice is most of the risk budget
+
+At a 20-tick stop, one contract against a $3,000 limit:
+
+| instrument | loss per contract | % of drawdown | straight losses to failure |
+| --- | ---: | ---: | ---: |
+| ES | $254.00 | 8.5% | **11.8** |
+| NQ | $104.00 | 3.5% | 28.8 |
+| MES | $26.00 | 0.9% | 115.4 |
+| MNQ | $11.00 | 0.4% | 272.7 |
+
+Twelve consecutive losses is an ordinary run for a 45% system. Trading the
+full-size contract on this account makes a normal losing streak terminal
+before any strategy question arises. Micros are not a cautious choice here;
+minis are an unsized one.
+
+## Withdrawing makes it harder, and income was the point
+
+Compounding to a target once is the easy version. Taking income means
+repeating a $2,000 run and resetting. Probability of surviving N cycles:
+
+| risk | win | R:R | ruin/cycle | 3 cycles | 6 cycles | 12 cycles |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| $150 | 50% | 1.5 | 0.6% | 98.1% | 96.2% | **92.6%** |
+| $150 | 40% | 2.0 | 4.9% | 86.0% | 73.9% | **54.6%** |
+| $300 | 50% | 1.5 | 8.0% | 78.0% | 60.8% | **37.0%** |
+| $300 | 40% | 2.0 | 17.9% | 55.4% | 30.7% | **9.4%** |
+
+A year of monthly payouts is twelve cycles. At $300 risk on a real 40%/2:1
+edge, the account survives that year **9.4%** of the time.
+
+## The ruin surface is a cliff, not a slope
+
+Account spec confirmed against a live account on 2026-09-15: $3,000 limit,
+$6,000 target, intraday trail. Ruin at 1.5:1 reward:risk with MES round-turn
+costs charged, 25,000 paths per cell:
+
+| risk/trade | losses to fail | 35% | 40% | 45% | 50% | 55% |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| $100 | 30 | 100.0% | 96.6% | 13.9% | **0.2%** | 0.0% |
+| $150 | 20 | 100.0% | 94.8% | 29.8% | 2.3% | 0.1% |
+| $200 | 15 | 99.9% | 92.7% | 41.1% | 7.1% | 0.9% |
+| $300 | 10 | 99.2% | 89.5% | 53.7% | 19.9% | 5.4% |
+| $500 | 6 | 96.7% | 85.9% | 63.5% | 37.9% | 18.8% |
+| $750 | 4 | 93.4% | 83.2% | 67.8% | 49.3% | 32.4% |
+
+Breakeven after costs is **41.6%**, and the table divides on it:
+
+**Below breakeven, sizing is irrelevant.** The 35% and 40% columns are lost
+at every size, and ruin *falls* as risk rises — 100% down to 93.4%. There is
+no risk management that rescues a negative edge, only a slower or faster
+arrival.
+
+**Above breakeven, sizing is the entire result.** At 45% — barely three
+points clear of breakeven — ruin runs from 13.9% to 67.8% purely on position
+size. Same edge, same market, a five-fold difference in survival decided by
+one number the trader chooses.
+
+The practical consequence is that the interesting quantity is not "does the
+strategy work". It is the distance between the measured win rate and 41.6%,
+and that distance is unknowable until enough trades exist to estimate it.
+Thirty trades give a standard error of about 9 percentage points on a win
+rate near 45%, which is wider than the entire distance from breakeven to
+comfortable. **A trader cannot locate their own column on this table until
+well past a hundred trades**, and until then the only defensible position is
+the top row.
+
+## A high win rate is not the number that decides this
+
+An account holder reporting six months at a 70-80% win rate is reporting the
+statistic least able to settle the question. Expectancy is `win_rate * R:R -
+(1 - win_rate)`, and the second term is invisible in a win count.
+
+What each win rate requires of the loss size, after MES costs:
+
+| win rate | largest average loss, per $1 of average win | i.e. risk this much to make 1 |
+| ---: | ---: | ---: |
+| 65% | 0.60 | 1.7 |
+| 70% | 0.49 | 2.1 |
+| 75% | 0.39 | 2.6 |
+| 80% | 0.30 | 3.3 |
+| 85% | 0.22 | 4.5 |
+
+The bar rises with the win rate, which is the trap. Win rates in this range
+are usually produced by taking profit early and giving losers room, and the
+looser the losers, the more of them the ratio has to survive. An 80% win rate
+risking 4 to make 1 loses money; a 55% win rate risking 1 to make 1.5 does not.
+
+## Tail losses dominate ruin while leaving expectancy nearly intact
+
+The model above assumed every loss is exactly one R. Real records contain
+losses that are not: the stop that gapped, the one held through a number, the
+one averaged into. A win count cannot show them and an average barely can.
+
+75% win rate at 0.5:1 (risking 2 to make 1) — genuinely profitable, +0.12R
+before costs. $300 risk, one loss in ten larger than planned, 20,000 paths:
+
+| oversized loss | expectancy | ruin (Test, EOD) | ruin (PRO, intraday) |
+| --- | ---: | ---: | ---: |
+| none, every stop holds | 0.08R | 8.9% | 10.4% |
+| 2x planned risk | 0.06R | 26.9% | 29.1% |
+| 3x planned risk | 0.03R | **52.8%** | **54.4%** |
+| 5x planned risk | -0.01R | 83.6% | 84.1% |
+| 8x planned risk | -0.09R | 93.6% | 93.9% |
+
+Expectancy falls from 0.08R to 0.03R — still positive, still a system that
+"works" on any average-based measure — while ruin goes from one-in-eleven to
+worse than a coin flip. **Averages are nearly blind to the tail and survival
+is not.** This is why the largest loss in a record is worth more scrutiny than
+the win rate, and why a record with no stop discipline cannot be evaluated at
+all.
+
+## The Test-to-PRO trail switch costs less than expected
+
+Test phase trails on the closing balance; PRO trails intraday on unrealized
+equity. A record built in Test therefore overstates PRO survivability. It does
+— but modestly, and it is worth saying so rather than overselling the point:
+
+| risk/trade | ruin in Test | ruin in PRO | penalty |
+| ---: | ---: | ---: | ---: |
+| $100 | 0.0% | 0.0% | +0.0% |
+| $300 | 9.0% | 10.8% | +1.7% |
+| $500 | 26.0% | 28.9% | +2.9% |
+| $750 | 39.1% | 43.7% | +4.6% |
+
+Four points at the largest size tested. Real, worth carrying, and an order of
+magnitude smaller than the tail effect above. The trail mode is not the thing
+to worry about; the loss distribution is.
+
+## Passing a $6,000 target in three sessions
+
+Measured against a real edge rather than an assumed one: 51.9% win rate at
+1.364 reward:risk, the figures from the only profitable account in a 92-trade
+log. EOD trail (Test phase), $3,000 limit, 25,000 paths, capped at the number
+of trades three sessions physically allow.
+
+| NQ size | risk/trade | trades needed | pass | ruin | ran out of time |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 | $337 | 78 | 46.3% | 25.3% | 28.4% |
+| **8** | $505 | 52 | **54.4%** | 42.2% | 3.3% |
+| 10 | $674 | 39 | 51.9% | 47.8% | 0.3% |
+| 12 (cap) | $842 | 31 | 47.3% | 52.7% | 0.0% |
+| 15 | $1,011 | 26 | 41.4% | 58.6% | 0.0% |
+
+**The optimum is interior.** Below it the deadline binds — a quarter of paths
+at 5 contracts simply run out of sessions before reaching the target. Above
+it ruin climbs faster than the target arrives. Neither the smallest nor the
+largest size is right when a deadline and a floor apply at once, which is the
+one situation where "trade smaller" stops being universally correct advice.
+
+## The stop is worth more than the size
+
+Same edge, same 5-contract size, the only difference being whether the
+measured loss tail is present — one loss in twelve at 5.4x the average, taken
+from the log:
+
+| | pass | ruin |
+| --- | ---: | ---: |
+| hard stop honoured, no tail | **46.3%** | 25.3% |
+| tail as actually traded | **16.1%** | 75.2% |
+
+Thirty points of pass probability, and ruin tripled. No sizing decision
+anywhere in this table moves the result that far — the best size change is
+worth eight points and the stop is worth thirty. **Position sizing is the
+second most important decision. Honouring the stop is the first.**
+
+## The pace assumption that undoes all of it
+
+Every row above assumes the edge survives being traded at the frequency the
+deadline demands. It measures a trader averaging 5.4 trades per session, and
+the 8-contract row needs 52 trades in three sessions — seventeen a day, more
+than three times the observed pace.
+
+An edge measured on selective entries in one narrow window is not the same
+edge when the trader must take three times as many to finish on schedule. The
+additional trades come from outside the conditions that produced the record,
+so the true pass probability is below every figure in this table by an amount
+that cannot be measured from the log. Treat 54% as a ceiling that assumes
+away the most likely failure.
+
+## The evaluation and the funded account want opposite sizes
+
+Removing a self-imposed deadline changes the problem, and measuring each
+account's own tail rather than borrowing one changes the conclusion.
+
+Separating the 92-trade log by account number gives two different traders:
+
+| population | win | R:R | tail (share of losses) | tail size | expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| all 92 trades | 53.3% | 0.684 | 14.0% | 3.40x | **-0.260R** |
+| current account, 52 trades | 51.9% | 1.364 | 8.0% | 2.78x | **+0.159R** |
+
+Applying the first tail to the second population, as an earlier pass here
+did, understates a real change in behaviour. The loss discipline improved and
+the edge is positive because of it. It is 52 trades, and at that sample the
+t-statistic against breakeven is 1.39 — real, not yet established.
+
+**Passing the evaluation** trails end-of-day, and failing costs only the fee.
+Expected fees to eventually pass, counting failed attempts:
+
+| size | pass | months per attempt | expected fees |
+| --- | ---: | ---: | ---: |
+| 5 MNQ | 96.0% | 8.5 | $1,506 |
+| 10 MNQ | 75.3% | 4.3 | $960 |
+| 5 NQ | 45.7% | 1.7 | $633 |
+| 8 NQ | 38.4% | 1.1 | **$471** |
+
+**Keeping the funded account** trails intraday, failing costs the account, and
+the target repeats forever. Probability of surviving twelve $2,000 payout
+cycles — one year:
+
+| size | ruin per cycle | survives 12 cycles | income at 80% split |
+| --- | ---: | ---: | ---: |
+| 5 MNQ | 2.3% | **75.5%** | $564/mo |
+| 10 MNQ | 13.8% | 17.1% | $1,129/mo |
+| 5 NQ | 31.0% | 1.2% | $2,822/mo |
+| 8 NQ | 35.6% | 0.5% | $4,516/mo |
+
+The two tables point in opposite directions, and that is the finding. The
+size that passes cheapest is the size that cannot hold the account it wins.
+Optimising the evaluation for speed rehearses precisely the habit that ends
+the funded account, and the evaluation's forgiving trail hides the cost until
+it is charged in the phase where failure is not refundable.
+
+**No size survives a year comfortably.** The best row is 75.5%, and it earns
+$564 a month. That is the arithmetic consequence of extracting income from a
+$3,000 buffer on a $100,000 notional: the buffer is 3% of the account being
+traded, and a rule that repeatedly takes $2,000 out of it is drawing down two
+thirds of its own risk budget every cycle. The constraint is structural, and
+no entry signal changes it.
+
+## Two gaps closed, one that would not close (2026-09-15)
+
+Asked what would raise confidence in the sizing plan, three of five stated
+gaps were attackable from the log already in hand. The results split.
+
+**Size discipline: closed, favourably.** The concern was that position size
+escalates after a loss — the mechanism behind most blown accounts, and the
+one this trader's history made plausible. It does not happen here:
+
+| after a... | average position |
+| --- | ---: |
+| winning trade | 4.67 contracts |
+| losing trade | 4.16 contracts |
+| loss over 2x average | 3.67 contracts |
+
+Size falls after losses and falls further after bad ones. That is the
+opposite of revenge sizing, and it removes the behavioural risk that made the
+earlier sizing recommendation a judgement call rather than a calculation.
+
+**Clustering: confirmed.** Session-level loss rates on the current account
+vary at a standard deviation of 0.171 where independent trades predict 0.109.
+Trades are not independent draws, so `ruin_probability` is optimistic.
+
+**The fix for it did not work, and the failure is the useful part.**
+`bootstrap_ruin` resamples whole sessions from the real log, which preserves
+clustering exactly and assumes nothing about the distribution. Run on the
+current account it returns **0.0% ruin and 100% pass at every position size**,
+including sizes the parametric model puts at coin-flip odds.
+
+That is not a discovery. The pool is seven sessions, six of them profitable,
+worst one -$435. Reaching a $3,000 floor requires roughly seven consecutive
+worst-sessions, probability 1.5e-06. **The resampled account is unkillable by
+construction.** Widen the pool to all seventeen sessions and it returns 100%
+ruin, because that pool contains the sessions that ended five real accounts.
+Two pools, two impossible answers, neither an estimate of anything.
+
+A bootstrap cannot draw a tail it has never seen. At small samples that is not
+a caveat, it is the entire output. `bootstrap_ruin` now refuses a pool under
+twenty sessions or one containing no losing session, because returning 0% in
+those cases is worse than returning nothing.
+
+**What this means for the sample-size problem.** The honest conclusion is that
+no amount of analysis closes the gap, because the gap is missing data rather
+than missing method. A record of six winning sessions out of seven is
+consistent with a strong edge and with a lucky fortnight, and no resampling,
+weighting or reparameterisation distinguishes them. What distinguishes them is
+a losing session traded under the current discipline — which is the one
+observation the record does not contain and the one that would settle it.
+
+## The Phase 1 gate
+
+The conclusion of the work above is that the remaining uncertainty is missing
+data rather than missing method, so the deliverable is a threshold rather than
+another estimate:
+
+```bash
+python research/analyze_log.py --gate --only-account <id> trades.csv
+```
+
+Seven criteria, all floors, all of which must clear. It exits non-zero on any
+failure. Against the 52-trade account that prompted it:
+
+```
+  [FAIL]  sample size             52 trades              need 108 for t=2
+  [FAIL]  edge established        t = 1.39               need t >= 2.00
+  [PASS]  reward:risk             1.364                  need > 0.926
+  [PASS]  loss tail               2.78x average          need <= 2.78x
+  [PASS]  no size escalation      -0.64 after a loss     need <= 0.00
+  [FAIL]  sessions                7 sessions             need 20
+  [PASS]  a losing session exists 1                      cannot falsify without one
+```
+
+Two of these are worth defending because they are unusual.
+
+**A losing session is required.** A record with none has not been tested, and
+every statistic computed from it measures a market that happened to cooperate.
+The gate refuses an unbroken winning record even when everything else passes —
+which is the one case where a trader is most certain they are ready.
+
+**The thresholds are code, not intentions.** The decision they gate is whether
+to trade larger, and that is the decision a good run makes tempting and a bad
+run makes urgent. A threshold agreed in advance and re-examined in the moment
+is not a threshold. This one is a process exit code.
+
+## Income is a purchasing decision, not a trading one (2026-09-16)
+
+The earlier conclusion — that a $3,000 buffer produces about $564 a month and
+no signal changes it — was correct about the account and wrong about the
+constraint. Scale the drawdown, the per-trade risk and the payout target
+together by the same factor and every survival figure is unchanged:
+
+| k | drawdown | risk/trade | payout | ruin/cycle | survives 12 cycles | income/mo |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1.0 | $3,000 | $67 | $2,000 | 2.3% | 75.7% | $565 |
+| 1.5 | $4,500 | $101 | $3,000 | 2.3% | 75.7% | $847 |
+| 3.0 | $9,000 | $202 | $6,000 | 2.3% | 75.7% | $1,694 |
+| 7.5 | $22,500 | $506 | $15,000 | 2.3% | 75.7% | $4,235 |
+
+Ruin is invariant to four significant figures because nothing about the
+problem changes — the floor, the position and the target all move together, so
+the same paths breach and the same paths finish. **Income is linear in
+deployed drawdown at fixed survival.** The ceiling is therefore set by how
+much drawdown can be bought, which is a purchasing decision, and the earlier
+figure was the answer for one account rather than a law about the strategy.
+
+TPT150 carries $4,500 against a $9,000 target for $360 a month, and up to five
+funded accounts may run simultaneously with a trader copying their own trades
+across them. That caps deployable drawdown at $22,500 and income near $4,200 a
+month at the same 75.7% annual survival.
+
+**Funded accounts carry no monthly fee** — a one-time $130 activation — so the
+recurring cost applies only while evaluating. That changes which route is
+cheaper.
+
+| route | to first income | income reached | cumulative at month 15 |
+| --- | ---: | --- | ---: |
+| five evaluations in parallel | $8,390 | $4,235/mo immediately | — |
+| one evaluation, add from income | $1,678 | $2,541/mo by month 15 | +$6,915 |
+
+The ramp is cash-positive by month 10 and reaches the parallel route's
+drawdown without ever risking $8,390 on an edge measured over 52 trades.
+
+## What correlated accounts actually buy
+
+Five accounts copy-traded from one signal are not five independent bets. Their
+equity curves are proportional, so their floors are proportional, and they
+breach on the same trade. Combined survival equals single-account survival —
+which is why income scales without survival falling, and is also the whole
+risk:
+
+```
+annual survival of the operation       75.7%
+probability of losing all five         24.3%
+capital lost in that event             $22,500 of drawdown
+```
+
+Independent accounts would lose roughly one in five. Correlated accounts lose
+five of five. The scaling result and the concentration risk are the same fact
+seen from two sides, and any account of the upside that omits the second half
+is selling something.
+
+## Correction: the tail was being counted twice (2026-09-16)
+
+Every figure in the two sections above understated the edge by about 30%,
+from a parameterisation error rather than a data problem.
+
+`ruin_probability` takes a unit of risk R and a tail expressed as a multiple
+of it. The parameters were built by averaging **every** loss to get R and then
+applying a tail multiplier on top — but the oversized losses are already
+inside that average, so they were charged twice. The error is silent, it
+always runs against the trader, and it grows with the tail.
+
+The test that catches it is reconciliation against realized P&L:
+
+| parameterisation | modelled expectancy | realized | error |
+| --- | ---: | ---: | ---: |
+| average all losses, then add a tail | $53.61/trade | $76.62 | **-30%** |
+| baseline excludes the tail | $76.62/trade | $76.62 | 0.00 |
+
+`edge_from_log` now derives the parameters correctly and returns a `check`
+field that must be zero. R is the *ordinary* loss — $284.87 here, not $336.87
+— and reward:risk against that baseline is 1.613, not 1.364.
+
+Corrected, a $6,000 target is reachable inside a month, which the earlier
+figures said took four:
+
+| size | risk | $/trade | sessions to target | pass | eval ruin | funded 12-cycle survival |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 12 MNQ | $71 | $13 | 82.4 | 0.0% | 0.5% | **96.3%** |
+| 25 MNQ | $142 | $27 | 41.2 | 11.5% | 9.5% | 51.5% |
+| 37 MNQ | $214 | $40 | 27.5 | 41.8% | 22.6% | 20.1% |
+| 5 NQ | $285 | $54 | **20.6** | 56.5% | 32.8% | **8.9%** |
+
+Only the bottom row finishes inside a month, and only the top row survives
+being funded. There is no size that does both, and the gap between them is
+fourfold.
+
+## Pace cannot substitute for size
+
+If speed came from trading more per session rather than larger, the conflict
+would dissolve: ruin is set by size alone, so 12 MNQ at twenty trades a
+session would pass in a month at 0.5% ruin and 96.3% funded survival.
+
+The log says it does not work. Splitting seventeen sessions by trade count:
+
+| | sessions | trades | per-trade result | win rate |
+| --- | ---: | ---: | ---: | ---: |
+| 7 or fewer trades | 14 | 39 | -$98.78 | 59.0% |
+| more than 7 trades | 3 | 53 | -$43.98 | 49.1% |
+
+Win rate drops ten points and the per-trade edge falls 55% once the session
+goes past a handful of trades. The single 35-trade session earned $14.83 a
+trade against a $76.62 average. An edge measured on a few selective entries in
+a ten-minute window is not the same edge at five times the frequency, and the
+data already shows it degrading.
+
+## The finding that matters more than either
+
+The current account's $3,984 is not distributed across 52 trades:
+
+```
+top  1 trade  of 52      $1,352    34% of net profit
+top  3 trades of 52      $3,758    94% of net profit
+the other 42 trades     -$4,791
+```
+
+**Three trades carry the entire result.** Forty-two of the remaining forty-nine
+lose money together. The 51.9% win rate and 1.613 reward:risk are real
+arithmetic on that record, and they describe three outcomes rather than a
+process.
+
+This is what the t-statistic of 1.39 was already saying, and concentration
+puts it more plainly than a t-statistic does. The effective sample is not 52.
+No position size, account size, pace or deadline changes what is being sized —
+and a plan to deploy it faster is a plan to find out sooner.
+
+## Correction: "effective sample of three" was wrong
+
+The concentration figure above — three trades carrying 94% of net profit — is
+correct, and the inference drawn from it was not. It was read as an effective
+sample near three, which overstates the problem considerably.
+
+Kish's effective sample size, from the absolute P&L weights, is **30.5 against
+a nominal 52**. That is meaningfully below 52 and nowhere near 3. A concentrated
+record carries less information than its trade count implies; it does not carry
+only as much as its largest trades.
+
+Removing the best trades one at a time says the same thing more directly:
+
+| | trades | expectancy |
+| --- | ---: | ---: |
+| as traded | 52 | $76.62 |
+| less the best trade | 51 | $51.60 |
+| less the best two | 50 | $28.08 |
+| less the best three | 49 | **$4.62** |
+
+Still profitable without its three best trades, which a record genuinely
+carried by three trades would not be. Thin, not hollow.
+
+## What the record actually supports
+
+Resampling trades to bound the uncertainty of a mean is what the bootstrap is
+for, and it works here where `bootstrap_ruin` did not: this needs the sample to
+represent its own sampling distribution, not to contain a tail it never saw.
+100,000 resamples of the 52 trades:
+
+```
+observed expectancy       $76.62/trade
+95% interval              -$62.25  to  +$218.32
+P(true edge > 0)          85.9%
+P(edge > $40/trade)       69.3%
+```
+
+The interval is enormous and it crosses zero. But 85.9% is not the verdict
+"unproven" that a t-statistic of 1.39 reads like against a 95% convention — it
+is a probability, and it favours the edge being real. The $40 threshold is what
+a one-month pass at 5 NQ requires, and the record supports it at 69.3%.
+
+So the honest statement is neither "established" nor "three lucky trades". It
+is: **probably a real edge, of a size the data cannot pin down within a factor
+of three.** `expectancy_interval` computes this for any log.
+
+The gate gains three criteria from it — top-three share at or under 60%,
+profitability surviving the loss of the best three trades, and an effective
+sample of at least 80. The current record passes the second and fails the other
+two, which is a fairer description than any single number.
+
+## What this does not model
+
+Trades are independent draws with a fixed win rate and a fixed R. Real losing
+streaks cluster, real traders raise size after losses, and a real edge decays.
+Every one of those makes the measured ruin optimistic. Slippage, gaps through
+stops, news halts, the flat-by-close requirement and platform outages are all
+absent. Treat these figures as the **best case for a stated edge**, not a
+forecast.
+
+Nothing here supplies an edge. `ruin_probability` takes the win rate as an
+argument because this repo has never measured one that survived deflation.

@@ -20,10 +20,21 @@ and backtesting them against a paper account.
 | `trading_bot.paper` | Forward testing: a frozen, tamper-evident rule fed bars as they arrive |
 | `trading_bot.broker` | Alpaca paper sandbox: accounts, positions, prices, retry-safe orders |
 | `trading_bot.live` | Turning the rule's decision into a sized order, with refusals |
+| `trading_bot.significance` | Whether a result survives the search that produced it |
+| `trading_bot.prop` | Funded-account risk: trailing drawdowns, sizing, ruin probability |
 
 Strategies see each candle exactly once, in order, and signals are filled at
 the close of the candle that produced them — so a backtest cannot trade on a
 price it would not have had at decision time.
+
+## Trading a funded account instead?
+
+Most of this README is about strategies measured on daily bars over decades.
+**None of it transfers to a funded prop account**, and the section on
+[funded accounts](#funded-accounts-are-a-different-problem) is the one to read
+instead. The short version: a brokerage account dies when it runs out of money,
+a funded account dies when equity touches a floor that trails its own peak, and
+a rule with a 30% drawdown fails a 3% floor whatever its Sharpe.
 
 ## Which strategy should I use?
 
@@ -382,6 +393,71 @@ Two things to know before relying on it:
 
 Commits it makes are authored by `github-actions[bot]` and do not re-trigger
 CI, so there is no loop to worry about.
+
+## Funded accounts are a different problem
+
+`trading_bot.prop` models an account that fails when equity touches a moving
+floor rather than when the cash runs out. Nothing in it predicts a price. It
+answers how much room is left, how large a position that room permits, and how
+often a stated edge reaches its target before the floor reaches it.
+
+```python
+from trading_bot import PRESETS, DrawdownFloor, ruin_probability
+
+book = DrawdownFloor(PRESETS["TPT100"])   # $100k notional, $3,000 limit
+book.mark(100_800)                        # a trade runs 800 in your favour
+book.close_trade(0)                       # and you exit flat
+book.room                                 # 2_200.0 — 800 of room, no profit
+```
+
+That is the mechanic worth understanding before anything else. On an account
+whose peak is marked on **unrealized** equity, a trade that runs your way and
+comes back to breakeven earns nothing and costs real drawdown room. No backtest
+in this repo can represent it, which is why this module exists.
+
+**Ruin is the governing number, and it is worse than the textbook case.**
+Classical gambler's ruin against a *fixed* floor puts a driftless walk at
+`target / (target + room)` — 67% on a $6,000 target and $3,000 of room. Against
+a *trailing* floor the same coin flip fails 81% of the time. The gap is what
+the trail costs before a dollar of commission.
+
+```python
+ruin_probability(PRESETS["TPT100"], risk_dollars=300, win_rate=0.5,
+                 reward_risk=1.5, tail_rate=0.1, tail_multiple=3.0)
+```
+
+`tail_rate` and `tail_multiple` are the parameters most worth setting. A high
+win rate hides oversized losses completely, and they dominate ruin while barely
+touching expectancy: on one measured edge, making a tenth of losses three times
+their planned size moved expectancy from 0.08R to 0.03R — still "profitable" —
+while ruin went from 8.9% to 52.8%.
+
+**Derive the parameters from a real log rather than by hand.** `edge_from_log`
+gets the decomposition right and returns a `check` field that must reconcile to
+zero against realized P&L. Averaging every loss to get the unit of risk and
+then applying a tail on top counts the big losses twice, understates the edge,
+and does so silently.
+
+```bash
+python research/analyze_log.py trades.csv                 # judge a broker export
+python research/analyze_log.py --gate trades.csv          # ten criteria, exit 1 on any failure
+python research/prop_risk.py --account TPT100             # ruin surfaces for a spec
+```
+
+`--gate` is the one to reach for before trading larger. It is executable rather
+than remembered because that decision is the one a good run makes tempting and
+a bad run makes urgent, and a threshold re-examined in the moment it binds is
+not a threshold. Two of its criteria are deliberately unusual: a record with no
+losing session is refused however good it looks, since it has not been tested,
+and a record whose profit sits in its best three trades is refused however long
+it is.
+
+**`PRESETS` is a convenience, not a source of truth.** Firm rules change without
+notice. Only TPT100's and TPT150's figures were checked against real accounts;
+the rest are inferred, and every number is overridable from the command line.
+
+[`docs/strategy-study.md`](docs/strategy-study.md) carries the measured results,
+including the ones that corrected earlier claims in this repo.
 
 ## Getting started
 
