@@ -1116,6 +1116,66 @@ profitability surviving the loss of the best three trades, and an effective
 sample of at least 80. The current record passes the second and fails the other
 two, which is a fairer description than any single number.
 
+## give_back was a guess; here is the bound (2026-09-17)
+
+`give_back` — maximum favourable excursion beyond a trade's realized result —
+sat at 0.3 in every funded-account figure in this document for no reason other
+than that it seemed reasonable. The broker export leaves its MFE column empty,
+which looks like it makes the parameter unknowable. It does not: a trade cannot
+excurse further than the instrument plausibly moves while it is open, and both
+the move and the duration are in the log.
+
+**The first attempt was vacuous.** Taking observed ticks-per-second and
+multiplying by hold time licensed 6.9R to 17R, because a 60-second hold gets a
+minute of the fastest rate ever seen. Price scales with the square root of
+time, and the log agrees: `|move| / sqrt(t)` has a coefficient of variation of
+0.81 against 1.04 for `|move| / t`.
+
+With `sigma = |move| / sqrt(seconds)` and the reflection principle — the
+running maximum of a driftless walk over [0, t] is `sigma*sqrt(t)*|Z|` — each
+trade's own duration gives its excursion:
+
+| sigma used | ticks per root-second | mean give_back | median | p90 |
+| --- | ---: | ---: | ---: | ---: |
+| median | 10.0 | 1.12R | 0.49R | 2.85R |
+| p75 | 16.0 | 2.02R | 1.07R | 4.91R |
+| p90 | 24.0 | 3.31R | 1.93R | 7.77R |
+
+So 0.3 was **too low**, by a factor of three or four at the central estimate.
+Sigma is also biased upward, because it is measured from moves that ended in an
+exit and a trader exits when the move arrives — `|move|` is closer to a stop
+distance than to an unconditional sample. Read the table as an upper region.
+
+## It never mattered, which is the useful part
+
+Sensitivity of every headline number across the whole band:
+
+**Evaluation (end-of-day trail): exactly zero.** Pass probability reads 99.5% /
+90.5% / 67.3% at 12 MNQ / 25 MNQ / 5 NQ, identical to four significant figures
+for every value from 0.0 to 3.0. `DrawdownFloor.mark` only ratchets the peak in
+intraday mode, so an end-of-day account never consults it. Every evaluation
+figure in this document was independent of the guess.
+
+**Funded (intraday trail): it bites, but not where it is being relied on.**
+Twelve-cycle survival:
+
+| give_back | 12 MNQ | 25 MNQ | 5 NQ |
+| ---: | ---: | ---: | ---: |
+| 0.0 | 96.5% | 52.0% | 10.4% |
+| 0.3 | 96.5% | 50.3% | 9.1% |
+| 1.0 | 96.1% | 46.6% | 6.0% |
+| 3.0 | 94.6% | 34.4% | 1.3% |
+
+At 12 MNQ — the size actually recommended — moving from 0.3 to the data-derived
+1.0 costs **0.4 points of annual survival**. At 5 NQ it costs 3.1 points, and
+both ends of that range are already unsurvivable, so the conclusion is
+unchanged there too.
+
+The gap is therefore closed, not by pinning the parameter down but by showing
+the recommendation is insensitive to it across the entire defensible range.
+`give_back_from_log` computes the bound from any export, and a wrong guess
+inside these bounds cannot change a sizing decision.
+
 ## What this does not model
 
 Trades are independent draws with a fixed win rate and a fixed R. Real losing

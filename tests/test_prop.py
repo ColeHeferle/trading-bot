@@ -10,6 +10,7 @@ from trading_bot.prop import (
     bootstrap_ruin,
     edge_from_log,
     expectancy_interval,
+    give_back_from_log,
     INSTRUMENTS,
     PRESETS,
     DrawdownFloor,
@@ -402,3 +403,64 @@ class TestExpectancyInterval:
     def test_rejects_an_impossible_confidence(self):
         with pytest.raises(ValueError, match="between 0 and 1"):
             expectancy_interval([100.0, -50.0], confidence=1.5)
+
+
+class TestGiveBackFromLog:
+    """Bounding excursion from hold times, since the MFE column is often empty."""
+
+    @staticmethod
+    def trades(n: int = 40, *, move: float = 10.0, secs: float = 4.0):
+        return [(move if i % 2 else -move, secs) for i in range(n)]
+
+    def test_uses_root_time_scaling(self):
+        """Sigma is per root-second. A 4x longer hold at the same move must
+        halve sigma, not quarter it."""
+        short = give_back_from_log(self.trades(secs=1.0), 10.0, trials=2_000)
+        long = give_back_from_log(self.trades(secs=4.0), 10.0, trials=2_000)
+        assert long["sigma"] == pytest.approx(short["sigma"] / 2, rel=1e-6)
+
+    def test_a_faster_market_gives_more_excursion(self):
+        calm = give_back_from_log(self.trades(move=5.0), 10.0, trials=4_000)
+        wild = give_back_from_log(self.trades(move=40.0), 10.0, trials=4_000)
+        assert wild["mean"] > calm["mean"]
+
+    def test_a_larger_risk_unit_shrinks_give_back(self):
+        """give_back is denominated in R, so the same excursion against a wider
+        stop is a smaller fraction of it."""
+        tight = give_back_from_log(self.trades(), 5.0, trials=4_000)
+        wide = give_back_from_log(self.trades(), 50.0, trials=4_000)
+        assert wide["mean"] < tight["mean"]
+
+    def test_a_higher_sigma_quantile_is_more_conservative(self):
+        mid = give_back_from_log(self.trades(), 10.0, sigma_quantile=0.5, trials=4_000)
+        high = give_back_from_log(self.trades(), 10.0, sigma_quantile=0.9, trials=4_000)
+        assert high["sigma"] >= mid["sigma"]
+        assert high["mean"] >= mid["mean"]
+
+    def test_never_returns_a_negative_give_back(self):
+        result = give_back_from_log(self.trades(), 10.0, trials=4_000)
+        assert result["mean"] >= 0.0 and result["median"] >= 0.0
+
+    def test_ordering_of_the_summary(self):
+        result = give_back_from_log(self.trades(), 10.0, trials=8_000)
+        assert result["median"] <= result["p90"]
+
+    def test_is_reproducible_for_a_seed(self):
+        kwargs = dict(trials=2_000, seed=4)
+        assert give_back_from_log(self.trades(), 10.0, **kwargs) == give_back_from_log(
+            self.trades(), 10.0, **kwargs
+        )
+
+    def test_ignores_zero_duration_trades(self):
+        mixed = self.trades(20) + [(10.0, 0.0)] * 20
+        assert give_back_from_log(mixed, 10.0, trials=2_000)["sigma"] == pytest.approx(
+            give_back_from_log(self.trades(20), 10.0, trials=2_000)["sigma"]
+        )
+
+    def test_refuses_when_no_trade_has_a_duration(self):
+        with pytest.raises(ValueError, match="positive duration"):
+            give_back_from_log([(10.0, 0.0)], 10.0)
+
+    def test_rejects_a_non_positive_risk_unit(self):
+        with pytest.raises(ValueError, match="risk_ticks must be positive"):
+            give_back_from_log(self.trades(), 0.0)
