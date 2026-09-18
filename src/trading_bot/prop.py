@@ -25,6 +25,7 @@ own account page before it is trusted — see `PRESETS`' docstring.
 
 from __future__ import annotations
 
+import math
 import random
 import statistics
 from dataclasses import dataclass, field
@@ -44,6 +45,7 @@ __all__ = [
     "bootstrap_ruin",
     "edge_from_log",
     "expectancy_interval",
+    "give_back_from_log",
 ]
 
 
@@ -582,4 +584,65 @@ def expectancy_interval(
             threshold: sum(1 for m in means if m > threshold) / trials
             for threshold in thresholds
         },
+    }
+
+
+def give_back_from_log(
+    trades: list[tuple[float, float]],
+    risk_ticks: float,
+    *,
+    sigma_quantile: float = 0.5,
+    trials: int = 40_000,
+    seed: int = 0,
+) -> dict[str, float]:
+    """Estimate `ruin_probability`'s `give_back` from hold times and moves.
+
+    `give_back` is maximum favourable excursion beyond the realized result,
+    and a broker export that leaves its MFE column empty appears to make it
+    unknowable. It is not: a trade cannot excurse further than the instrument
+    plausibly moves while it is open, and both the move and the duration are
+    in the log.
+
+    `trades` is (ticks_per_contract, seconds) per trade, signed so a favourable
+    move is positive. `risk_ticks` is R in the same units.
+
+    Price scales with the square root of time, not with time, so the bound is
+    built from sigma = |move| / sqrt(seconds). Scaling linearly gives a
+    vacuous answer — a minute of holding would license a thousand ticks.
+
+    For a driftless walk the running maximum over [0, t] is distributed as
+    sigma * sqrt(t) * |Z| with Z standard normal, by the reflection principle.
+    Sampling that against each trade's own duration gives the distribution of
+    excursion beyond its exit.
+
+    **Sigma is biased upward here and the result is therefore conservative.**
+    It is measured from moves that ended in an exit, and a trader exits when
+    the move arrives, so |move| is closer to a stop or target distance than to
+    an unconditional sample of price movement. Read the output as an upper
+    region rather than a point estimate.
+    """
+    usable = [(move, secs) for move, secs in trades if secs > 0]
+    if not usable:
+        raise ValueError("no trade has a positive duration to measure against")
+    if risk_ticks <= 0:
+        raise ValueError("risk_ticks must be positive")
+    if not 0.0 < sigma_quantile < 1.0:
+        raise ValueError("sigma_quantile must be between 0 and 1")
+
+    sigmas = sorted(abs(move) / math.sqrt(secs) for move, secs in usable)
+    sigma = sigmas[min(len(sigmas) - 1, int(sigma_quantile * len(sigmas)))]
+
+    rng = random.Random(seed)
+    samples = []
+    for _ in range(trials):
+        move, secs = rng.choice(usable)
+        excursion = sigma * math.sqrt(secs) * abs(rng.gauss(0.0, 1.0))
+        samples.append(max(0.0, excursion - max(move, 0.0)) / risk_ticks)
+    samples.sort()
+
+    return {
+        "sigma": sigma,
+        "mean": sum(samples) / len(samples),
+        "median": samples[len(samples) // 2],
+        "p90": samples[int(0.90 * len(samples))],
     }
