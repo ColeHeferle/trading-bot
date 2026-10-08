@@ -8,8 +8,24 @@ A dependency-free Python toolkit for building, backtesting, and paper-trading ca
 - Statistical significance testing to separate real edge from luck
 - Prop-account risk model with trailing drawdown floors that mirror real funded-account rules
 - Zero third-party dependencies, standard library only
-
+  
 **Why I built it:** After five years day trading the Nasdaq, I wanted a way to test strategies honestly before risking capital, and to model the drawdown rules that actually decide whether a funded account survives.
+  
+## Quick Start
+
+```bash
+git clone https://github.com/ColeHeferle/trading-bot.git
+cd trading-bot
+pip install -e .
+python examples/sma_backtest.py
+```
+
+Run the test suite:
+
+```bash
+pip install pytest
+pytest
+```
 
 ## Layout
 
