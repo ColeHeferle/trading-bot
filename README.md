@@ -1,9 +1,15 @@
 # trading-bot
 
-Trading bot for Claude code.
+A dependency-free Python toolkit for building, backtesting, and paper-trading candle-driven strategies, with risk modeling for funded prop-firm accounts.
 
-A small, dependency-free Python toolkit for building candle-driven strategies
-and backtesting them against a paper account.
+**Highlights**
+- Pluggable `Strategy` interface with SMA crossover, price-vs-SMA, time-series momentum, and buy-and-hold built in
+- Backtest engine with fees, position sizing, and realized PnL tracking
+- Statistical significance testing to separate real edge from luck
+- Prop-account risk model with trailing drawdown floors that mirror real funded-account rules
+- Zero third-party dependencies, standard library only
+
+**Why I built it:** After five years day trading the Nasdaq, I wanted a way to test strategies honestly before risking capital, and to model the drawdown rules that actually decide whether a funded account survives.
 
 ## Layout
 
